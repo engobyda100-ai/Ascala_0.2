@@ -1,0 +1,45 @@
+# Persona UX Reviewer — Cursor Project Rules
+
+## Project Overview
+This is a Next.js 14+ (App Router) TypeScript application that:
+1. Takes a target market description + app URL as input
+2. Uses Gemini AI (Google) to generate a user persona
+3. Uses Stagehand (Browserbase) to navigate the app as that persona
+4. Uses Gemini AI with vision to analyze screenshots and produce a UX report
+
+## Tech Stack
+- Next.js 14+ with App Router and TypeScript
+- Google Gemini API (@google/generative-ai SDK) for persona generation and vision-based analysis
+- Stagehand (@browserbasehq/stagehand) for AI-native browser automation
+- Tailwind CSS + shadcn/ui for the frontend
+- Deployed on Vercel + Browserbase Cloud
+
+## Key Architecture Rules
+- All LLM calls go through lib/gemini.ts using the @google/generative-ai SDK
+- Use Gemini 2.5 Pro for analysis tasks (multimodal) and Gemini 2.0 Flash for simple/fast tasks
+- All browser automation goes through lib/browser.ts using Stagehand
+- The API route at app/api/review/route.ts orchestrates the full pipeline
+- Prompts are centralized in lib/prompts.ts
+- Types are centralized in lib/types.ts
+
+## Gemini-Specific Rules
+- Use GoogleGenerativeAI class from @google/generative-ai
+- For vision tasks, pass images as inline_data with base64 encoding and mimeType
+- Use generationConfig for temperature, topP, maxOutputTokens
+- Use responseMimeType: "application/json" for structured JSON output
+- Handle rate limits with exponential backoff
+
+## Stagehand-Specific Rules
+- Use act() for interactions: clicking, typing, scrolling
+- Use observe() to find elements on the page
+- Use extract() to pull structured data from the page
+- Always take screenshots after key navigation steps
+- Set reasonable timeouts (30s default)
+- Handle navigation errors gracefully
+
+## Code Style
+- Use async/await everywhere (no raw Promises)
+- Use Zod for runtime validation of LLM outputs
+- Centralize error handling in the API route
+- Use server actions or API routes for all backend logic
+- Never expose API keys to the client
