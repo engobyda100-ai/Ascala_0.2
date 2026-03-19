@@ -20,11 +20,11 @@ function TechSavvinessDots({ value }: { value: number }) {
 
 export function PersonaCard({ persona }: { persona: Persona }) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
+    <Card className="border-border/60 shadow-none">
+      <CardHeader className="px-4 pb-2 pt-4">
         <div className="flex flex-wrap items-baseline gap-2">
-          <h2 className="text-xl font-semibold">{persona.name}</h2>
-          <span className="text-muted-foreground">
+          <h2 className="text-lg font-semibold">{persona.name}</h2>
+          <span className="text-sm text-muted-foreground">
             {persona.age} · {persona.jobTitle} · {persona.companySize}
           </span>
         </div>
@@ -33,7 +33,7 @@ export function PersonaCard({ persona }: { persona: Persona }) {
           <TechSavvinessDots value={persona.techSavviness} />
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
+      <CardContent className="space-y-4 px-4 pb-4">
         <blockquote className="border-l-2 border-muted-foreground/30 pl-4 italic text-muted-foreground">
           &ldquo;{persona.quote}&rdquo;
         </blockquote>
@@ -57,13 +57,13 @@ export function PersonaCard({ persona }: { persona: Persona }) {
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
           <div>
-            <h3 className="mb-2 text-sm font-medium">Signup triggers</h3>
+            <h3 className="mb-2 text-sm font-medium">Signup Triggers</h3>
             <p className="text-sm text-muted-foreground">
               {persona.signupTriggers.join(' · ')}
             </p>
           </div>
           <div>
-            <h3 className="mb-2 text-sm font-medium">Bounce triggers</h3>
+            <h3 className="mb-2 text-sm font-medium">Bounce Triggers</h3>
             <p className="text-sm text-muted-foreground">
               {persona.bounceTriggers.join(' · ')}
             </p>

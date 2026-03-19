@@ -33,14 +33,14 @@ function FindingCard({
   severity: 'Good' | 'Needs Work' | 'Critical';
 }) {
   return (
-    <Card>
-      <CardHeader className="pb-2">
+    <Card className="border-border/60 shadow-none">
+      <CardHeader className="px-4 pb-2 pt-4">
         <div className="flex flex-wrap items-center justify-between gap-2">
-          <h3 className="font-semibold">{category}</h3>
+          <h3 className="text-sm font-semibold">{category}</h3>
           <SeverityBadge severity={severity} />
         </div>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-4 pb-4">
         <ul className="list-inside list-disc space-y-1 text-sm text-muted-foreground">
           {findings.map((f, i) => (
             <li key={i}>{f}</li>
@@ -58,11 +58,11 @@ export function ReportView({ report }: { report: UXReport }) {
     .sort((a, b) => a.rank - b.rank);
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6">
       <PersonaCard persona={persona} />
 
       <section>
-        <h2 className="mb-4 text-lg font-semibold">UX Findings</h2>
+        <h2 className="mb-3 text-base font-semibold">UX Findings</h2>
         <div className="grid gap-4 sm:grid-cols-1 lg:grid-cols-2">
           {findings.map((f, i) => (
             <FindingCard
@@ -76,26 +76,26 @@ export function ReportView({ report }: { report: UXReport }) {
       </section>
 
       <section>
-        <h2 className="mb-4 text-lg font-semibold">Metric Predictions</h2>
-        <Card>
-          <CardContent className="pt-6">
+        <h2 className="mb-3 text-base font-semibold">Metric Predictions</h2>
+        <Card className="border-border/60 shadow-none">
+          <CardContent className="px-4 pb-4 pt-4">
             <MetricsTable metrics={metrics} />
           </CardContent>
         </Card>
       </section>
 
       <section>
-        <h2 className="mb-4 text-lg font-semibold">Top 3 Recommendations</h2>
+        <h2 className="mb-3 text-base font-semibold">Top 3 Recommendations</h2>
         <div className="grid gap-4 sm:grid-cols-1 md:grid-cols-3">
           {top3.map((rec) => (
-            <Card key={rec.rank} className="flex flex-col">
-              <CardHeader className="pb-2">
+            <Card key={rec.rank} className="flex flex-col border-border/60 shadow-none">
+              <CardHeader className="px-4 pb-2 pt-4">
                 <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground">
                   {rec.rank}
                 </div>
                 <h3 className="pt-2 font-semibold">{rec.whatToChange}</h3>
               </CardHeader>
-              <CardContent className="flex-1 space-y-2 text-sm text-muted-foreground">
+              <CardContent className="flex-1 space-y-2 px-4 pb-4 text-sm text-muted-foreground">
                 <p>
                   <span className="font-medium text-foreground">Why:</span>{' '}
                   {rec.whyItMatters}
@@ -111,8 +111,8 @@ export function ReportView({ report }: { report: UXReport }) {
       </section>
 
       <section>
-        <h2 className="mb-4 text-lg font-semibold">Persona Verdict</h2>
-        <blockquote className="border-l-4 border-primary/50 bg-muted/50 py-4 pl-6 pr-4 text-lg italic">
+        <h2 className="mb-3 text-base font-semibold">Persona Verdict</h2>
+        <blockquote className="rounded-r-xl border-l-4 border-primary/40 pl-5 pr-4 text-base italic leading-7 text-muted-foreground">
           &ldquo;{personaVerdict}&rdquo;
         </blockquote>
       </section>

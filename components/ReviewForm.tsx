@@ -9,9 +9,13 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import type { UXReport } from '@/lib/types';
 
 const STAGES = [
-  'Generating persona 🧑‍🤝‍🧑 💭 (OB coded this app)...',
-  'Browsing app 🌐 💻...',
-  'Analyzing 🔍 👀...',
+  'Getting ready...',
+  'Generating persona 🧑‍🤝‍🧑 💭 ...',
+  'Persona is browsing your app 🌐 💻...',
+  'Discovering insights🔍💭...',
+  'Learning more about the app 🔍💻...',
+  'Analyzing the app through the persona lens 🔍 👀...',
+  'Providing recommendations 💡💡...',
 ] as const;
 
 export function ReviewForm({

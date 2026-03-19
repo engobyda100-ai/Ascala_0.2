@@ -8,7 +8,15 @@ export const maxDuration = 120;
 export async function POST(req: NextRequest) {
   try {
     const body: ReviewRequest = await req.json();
-    const { targetMarket, appUrl } = body;
+    const {
+      targetMarket,
+      appUrl,
+      selectedTestIds = [],
+      intakeSummary,
+      productContext,
+      structuredIntake,
+      attachedFiles = [],
+    } = body;
 
     if (!targetMarket || !appUrl) {
       return NextResponse.json(
@@ -18,21 +26,39 @@ export async function POST(req: NextRequest) {
     }
 
     console.log('[1/3] Generating persona...');
-    const persona = await generatePersona(targetMarket);
+    const persona = await generatePersona(targetMarket, {
+      attachedFiles,
+      intakeSummary,
+      productContext,
+      structuredIntake,
+      selectedTestIds,
+    });
 
     console.log('[2/3] Running browser session...');
-    const screenshots = await runBrowserSession(appUrl, persona);
+    const browserSession = await runBrowserSession(appUrl, persona, {
+      selectedTestIds,
+      structuredIntake,
+    });
 
     console.log('[3/3] Analyzing app through persona lens...');
-    const analysis = await analyzeApp(persona, screenshots);
+    const analysis = await analyzeApp(persona, browserSession.screenshots, {
+      attachedFiles,
+      intakeSummary,
+      productContext,
+      browserExplorationSummary: browserSession.explorationSummary,
+      structuredIntake,
+      selectedTestIds,
+    });
 
     const report: UXReport = {
       persona,
-      screenshots,
+      screenshots: browserSession.screenshots,
+      browserExplorationSummary: browserSession.explorationSummary,
       findings: analysis.findings,
       metrics: analysis.metrics,
       recommendations: analysis.recommendations,
       personaVerdict: analysis.personaVerdict,
+      selectedTestResults: analysis.selectedTestResults,
     };
 
     return NextResponse.json(report);
