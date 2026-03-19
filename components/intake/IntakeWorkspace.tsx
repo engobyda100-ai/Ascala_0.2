@@ -129,17 +129,21 @@ export function IntakeWorkspace() {
       }),
     [completedResultsById, pendingTestIds, resultSnapshot]
   );
-  const preferredResultTest = useMemo(
-    () => getPreferredResultTest(resultSummary?.selectedTests || []),
+  const resultTests = useMemo<ValidationResultTestSummary[]>(
+    () => resultSummary?.selectedTests ?? [],
     [resultSummary]
   );
+  const preferredResultTest = useMemo(
+    () => getPreferredResultTest(resultTests),
+    [resultTests]
+  );
   const activeResultTest =
-    resultSummary?.selectedTests.find((test) => test.id === activeResultTestId) ||
+    resultTests.find((test) => test.id === activeResultTestId) ||
     preferredResultTest ||
     null;
   const completedResultTests = useMemo(
-    () => (resultSummary?.selectedTests || []).filter((test) => test.status === 'completed'),
-    [resultSummary]
+    () => resultTests.filter((test) => test.status === 'completed'),
+    [resultTests]
   );
 
   const canRun =

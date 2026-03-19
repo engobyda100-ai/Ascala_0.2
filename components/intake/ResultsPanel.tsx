@@ -112,7 +112,9 @@ export function ExpandedResultsReaderSurface({
   );
 }
 
-export function getPreferredResultTest(tests: ValidationResultTestSummary[]) {
+export function getPreferredResultTest(
+  tests: ValidationResultTestSummary[]
+): ValidationResultTestSummary | null {
   const completedTests = tests.filter((test) => test.status === 'completed');
 
   if (completedTests.length === 0) {
