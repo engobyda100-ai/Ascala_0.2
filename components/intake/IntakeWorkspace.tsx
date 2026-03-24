@@ -521,8 +521,8 @@ export function IntakeWorkspace() {
   };
 
   const handleOpenExpandedResults = () => {
-    if (!activeResultTest && preferredResultTest) {
-      setActiveResultTestId((preferredResultTest as { id: string }).id);
+    if (preferredResultTest) {
+      setActiveResultTestId(preferredResultTest.id);
     }
 
     setIsResultPopupOpen(false);
