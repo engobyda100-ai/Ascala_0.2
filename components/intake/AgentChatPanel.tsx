@@ -59,11 +59,11 @@ export function AgentChatPanel({
       <CardHeader className="min-h-[64px] justify-center border-b border-border/45 px-6 py-3">
         <div className="flex items-center justify-between gap-4">
           <div className="space-y-0.5">
+            <CardTitle className="text-base font-semibold">Ascala Intelligence</CardTitle>
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
               <span className="text-[11px] font-medium text-muted-foreground">Online</span>
             </div>
-            <CardTitle className="text-base font-semibold">Ascala Intake Agent</CardTitle>
           </div>
           <div className="text-right text-[11px] leading-4 text-muted-foreground">
             <p>{isResponding ? 'Coach is thinking' : modeLabel}</p>

@@ -8,6 +8,7 @@ import {
   BrowserExplorationSummary,
   ChatAgentRequest,
   ChatAgentResponse,
+  InputMode,
   Persona,
   ReviewAttachedFileMetadata,
   ScreenCapture,
@@ -30,6 +31,7 @@ import {
 interface ReviewContextOptions {
   attachedFiles?: ReviewAttachedFileMetadata[];
   browserExplorationSummary?: BrowserExplorationSummary;
+  inputMode?: InputMode;
   intakeSummary?: string;
   productContext?: string;
   structuredIntake?: StructuredIntakeContext;
@@ -95,6 +97,8 @@ export async function generatePersona(
       .replace('{{INTAKE_SUMMARY}}', formatOptionalText(options.intakeSummary))
       .replace('{{SELECTED_TESTS}}', formatSelectedTests(options.selectedTestIds))
       .replace('{{ATTACHED_FILES}}', formatAttachedFiles(options.attachedFiles))
+      .replace('{{INPUT_MODE}}', formatInputMode(options.inputMode))
+      .replace('{{PERSONA_CONTEXT}}', formatPersonaContext(options.inputMode))
       .replace(
         '{{ATTACHED_FILE_CONTEXT}}',
         formatAttachedFileContext(options.attachedFiles)
@@ -104,10 +108,13 @@ export async function generatePersona(
     const text = response.text();
 
     if (!text) {
-      throw new Error('Gemini returned empty response');
+      console.warn('Persona generation returned an empty response. Using fallback persona.', {
+        inputMode: options.inputMode || 'url',
+      });
+      return createFallbackPersona(options.inputMode);
     }
 
-    return JSON.parse(text) as Persona;
+    return parsePersonaResponse(text, options.inputMode);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
 
@@ -118,12 +125,11 @@ export async function generatePersona(
     ) {
       throw new Error(`Gemini API error: ${message}`);
     }
-
-    if (message.includes('JSON')) {
-      throw new Error(`Failed to parse persona JSON: ${message}`);
-    }
-
-    throw new Error(`Persona generation failed: ${message}`);
+    console.error('Persona generation failed. Falling back to default persona.', {
+      error,
+      inputMode: options.inputMode || 'url',
+    });
+    return createFallbackPersona(options.inputMode);
   }
 }
 
@@ -167,6 +173,11 @@ export async function analyzeApp(
       .replace('{{INTAKE_SUMMARY}}', formatOptionalText(options.intakeSummary))
       .replace('{{SELECTED_TESTS}}', formatSelectedTests(options.selectedTestIds))
       .replace('{{ATTACHED_FILES}}', formatAttachedFiles(options.attachedFiles))
+      .replace('{{INPUT_MODE}}', formatInputMode(options.inputMode))
+      .replace(
+        '{{SCREENSHOT_FLOW_GUIDANCE}}',
+        formatScreenshotFlowGuidance(options.inputMode, screens)
+      )
       .replace(
         '{{ATTACHED_FILE_CONTEXT}}',
         formatAttachedFileContext(options.attachedFiles)
@@ -474,6 +485,158 @@ function formatAttachedFileContext(attachedFiles?: ReviewAttachedFileMetadata[])
     })
     .join('\n\n---\n\n')
     .slice(0, 12000);
+}
+
+function formatInputMode(inputMode?: InputMode) {
+  if (inputMode === 'figma') {
+    return 'Figma prototype. Simulate user interaction based on the visual layout instead of assuming live clickable navigation.';
+  }
+
+  if (inputMode === 'screenshots') {
+    return 'Screenshot-only input. Use the provided images as static evidence and do not assume a live product session.';
+  }
+
+  if (inputMode === 'video') {
+    return 'Video input. Use sampled frames from uploaded videos as static journey evidence and do not assume a live product session.';
+  }
+
+  return 'Live product URL.';
+}
+
+function formatScreenshotFlowGuidance(
+  inputMode: InputMode | undefined,
+  screens: ScreenCapture[]
+) {
+  if (inputMode !== 'screenshots') {
+    if (inputMode === 'video') {
+      if (screens.length <= 1) {
+        return 'Single-frame video mode. Treat this as a first visible moment from an uploaded video and simulate what a first-time user would notice, understand, and try next.';
+      }
+
+      const steps = screens
+        .map(
+          (screen, index) =>
+            `Step ${index + 1}: ${screen.pageTitle}${screen.captureLabel ? ` (${screen.captureLabel})` : ''}`
+        )
+        .join('\n');
+
+      return [
+        'You are simulating a real user interacting with this product through sampled frames from uploaded videos.',
+        'Treat the frames as a logical flow in order.',
+        'For each frame: 1. Describe what the user sees 2. What the user is likely trying to do 3. What is clear vs confusing 4. What action they would take next.',
+        'Then identify the biggest friction point across the flow, provide 1 key insight, and provide 1 recommended next action.',
+        `Observed sequence:\n${steps}`,
+      ].join('\n');
+    }
+
+    return 'No screenshot-specific flow guidance.';
+  }
+
+  if (screens.length <= 1) {
+    return 'Single screenshot mode. Treat this as a landing or first-impression experience and simulate what a first-time user would notice, understand, and try next.';
+  }
+
+  const steps = screens
+    .map(
+      (screen, index) =>
+        `Step ${index + 1}: ${screen.pageTitle}${screen.captureLabel ? ` (${screen.captureLabel})` : ''}`
+    )
+    .join('\n');
+
+  return [
+    'You are simulating a real user interacting with this product through a sequence of UI screens.',
+    'Treat the screenshots as a logical flow in order.',
+    'For each screen: 1. Describe what the user sees 2. What the user is likely trying to do 3. What is clear vs confusing 4. What action they would take next.',
+    'Then identify the biggest friction point across the flow, provide 1 key insight, and provide 1 recommended next action.',
+    'Use that flow simulation to make the existing JSON output more concrete and sequential rather than generic.',
+    `Observed sequence:\n${steps}`,
+  ].join('\n');
+}
+
+function formatPersonaContext(inputMode?: InputMode) {
+  if (inputMode === 'screenshots') {
+    return 'User is interacting with a product based on UI screenshots. The persona should be resilient to partial context and static visual evidence.';
+  }
+
+  if (inputMode === 'video') {
+    return 'User is interacting with a product based on uploaded product videos summarized into visible frames. The persona should reason from observed moments in the flow.';
+  }
+
+  if (inputMode === 'figma') {
+    return 'User is interacting with a prototype. The persona should reflect early-stage product evaluation and incomplete flows.';
+  }
+
+  return 'User is interacting with a live product URL.';
+}
+
+function parsePersonaResponse(rawText: string, inputMode?: InputMode): Persona {
+  console.log('Raw Gemini persona response:', rawText);
+
+  try {
+    const parsed = JSON.parse(rawText) as Partial<Persona>;
+    return normalizePersona(parsed, inputMode);
+  } catch (error) {
+    console.error('Persona JSON parse failed. Using fallback persona.', {
+      error,
+      rawResponse: rawText,
+      inputMode: inputMode || 'url',
+    });
+    return createFallbackPersona(inputMode);
+  }
+}
+
+function normalizePersona(persona: Partial<Persona>, inputMode?: InputMode): Persona {
+  const fallback = createFallbackPersona(inputMode);
+
+  return {
+    name: persona.name?.trim() || fallback.name,
+    description: persona.description?.trim() || fallback.description,
+    age:
+      typeof persona.age === 'number' && Number.isFinite(persona.age)
+        ? Math.max(18, Math.round(persona.age))
+        : fallback.age,
+    jobTitle: persona.jobTitle?.trim() || fallback.jobTitle,
+    companySize: persona.companySize?.trim() || fallback.companySize,
+    goals: normalizePersonaList(persona.goals, fallback.goals),
+    frustrations: normalizePersonaList(persona.frustrations, fallback.frustrations),
+    techSavviness:
+      typeof persona.techSavviness === 'number' && Number.isFinite(persona.techSavviness)
+        ? Math.max(1, Math.min(5, Math.round(persona.techSavviness)))
+        : fallback.techSavviness,
+    quote: persona.quote?.trim() || fallback.quote,
+    signupTriggers: normalizePersonaList(persona.signupTriggers, fallback.signupTriggers),
+    bounceTriggers: normalizePersonaList(persona.bounceTriggers, fallback.bounceTriggers),
+  };
+}
+
+function normalizePersonaList(items: string[] | undefined, fallback: string[]) {
+  const normalized = (items || []).map((item) => item.trim()).filter(Boolean).slice(0, 3);
+  return normalized.length > 0 ? normalized : fallback;
+}
+
+function createFallbackPersona(inputMode?: InputMode): Persona {
+  const description =
+    inputMode === 'screenshots'
+      ? 'A typical first-time user interpreting the product from UI screenshots alone.'
+      : inputMode === 'video'
+        ? 'A typical first-time user interpreting the product from sampled frames taken from uploaded videos.'
+      : inputMode === 'figma'
+        ? 'A typical first-time user exploring an early interactive prototype.'
+        : 'A typical first-time user exploring the product.';
+
+  return {
+    name: 'General User',
+    description,
+    age: 32,
+    jobTitle: 'Prospective customer',
+    companySize: '10-50 employees',
+    goals: ['Understand the product', 'Complete a basic task', 'Decide whether it feels useful'],
+    frustrations: ['Confusing interface', 'Unclear next steps', 'Missing context or guidance'],
+    techSavviness: 3,
+    quote: 'I want to quickly understand what this does and whether it is worth my time.',
+    signupTriggers: ['Clear value proposition', 'Obvious next step', 'Low-friction first experience'],
+    bounceTriggers: ['Confusing interface', 'Unclear next steps', 'Too much effort upfront'],
+  };
 }
 
 function normalizeChatAgentResponse(response: ChatAgentResponse): ChatAgentResponse {

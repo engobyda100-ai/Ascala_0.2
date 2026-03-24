@@ -17,6 +17,7 @@ import type {
   ChatAgentRequest,
   ChatAgentResponse,
   ChatAgentMode,
+  InputMode,
   IntakeChatMessage,
   IntakeCoachMessagePayload,
   ReviewAttachedFileMetadata,
@@ -51,25 +52,24 @@ const VALIDATION_TEST_GROUPS: ValidationTestGroup[] = [
   },
 ];
 
-const INITIAL_SELECTED_TEST_IDS = [
-  'engagement-habit-formation',
-  'onboarding',
-  'accessibility',
-  'compliance',
-] as const satisfies readonly ValidationTestId[];
+const INITIAL_SELECTED_TEST_IDS = [] as const satisfies readonly ValidationTestId[];
 
 const INITIAL_MESSAGES: IntakeChatMessage[] = [
   {
     id: 'assistant-welcome',
     role: 'assistant',
     content:
-      "Hi, I'm here to help! The more context you give me, the more insights and test recommendations I can give you.  What brings you here today?",
+      "Most products don't fail after launch, they fail before it. Drop your prototype and context on the left, then pick what you want tested (or let me recommend). I'll show you where it breaks, and what to fix in minutes!",
     timestamp: createChatTimestamp(),
   },
 ];
 
 export function IntakeWorkspace() {
+  const [inputMode, setInputMode] = useState<InputMode>('url');
   const [appUrl, setAppUrl] = useState('');
+  const [figmaUrl, setFigmaUrl] = useState('');
+  const [screenshots, setScreenshots] = useState<File[]>([]);
+  const [videos, setVideos] = useState<File[]>([]);
   const [draftMessage, setDraftMessage] = useState('');
   const [messages, setMessages] = useState<IntakeChatMessage[]>(INITIAL_MESSAGES);
   const messagesRef = useRef<IntakeChatMessage[]>(INITIAL_MESSAGES);
@@ -104,14 +104,14 @@ export function IntakeWorkspace() {
     () =>
       mergeStructuredIntakeContext(
         deriveStructuredIntakeContext({
-          appUrl,
+          appUrl: getActiveTextTarget(inputMode, appUrl, figmaUrl),
           messages,
           selectedTestIds,
           uploadedFiles,
         }),
         intakeUpdates
       ),
-    [appUrl, intakeUpdates, messages, selectedTestIds, uploadedFiles]
+    [appUrl, figmaUrl, inputMode, intakeUpdates, messages, selectedTestIds, uploadedFiles]
   );
   const intakeSignalCount = countStructuredIntakeSignals(structuredIntake);
   const completedSelectedTestIds = useMemo(
@@ -149,7 +149,15 @@ export function IntakeWorkspace() {
   );
 
   const canRun =
-    Boolean(appUrl) && pendingTestIds.length > 0 && runState.status !== 'running';
+    hasValidInput({
+      appUrl,
+      figmaUrl,
+      inputMode,
+      screenshots,
+      videos,
+    }) &&
+    pendingTestIds.length > 0 &&
+    runState.status !== 'running';
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -237,6 +245,41 @@ export function IntakeWorkspace() {
         ? current.filter((id) => id !== testId)
         : [...current, testId]
     );
+  };
+
+  const handleInputModeChange = (mode: InputMode) => {
+    setInputMode(mode);
+    setRunState((current) => (current.status === 'error' ? { status: 'idle' } : current));
+  };
+
+  const handleAddScreenshots = (files: FileList | File[]) => {
+    const nextFiles = Array.from(files).filter((file) => file.type.startsWith('image/'));
+
+    if (nextFiles.length === 0) {
+      return;
+    }
+
+    setScreenshots((current) => [...current, ...nextFiles]);
+  };
+
+  const handleRemoveScreenshot = (indexToRemove: number) => {
+    setScreenshots((current) =>
+      current.filter((_, index) => index !== indexToRemove)
+    );
+  };
+
+  const handleAddVideos = (files: FileList | File[]) => {
+    const nextFiles = Array.from(files).filter((file) => file.type.startsWith('video/'));
+
+    if (nextFiles.length === 0) {
+      return;
+    }
+
+    setVideos((current) => [...current, ...nextFiles]);
+  };
+
+  const handleRemoveVideo = (indexToRemove: number) => {
+    setVideos((current) => current.filter((_, index) => index !== indexToRemove));
   };
 
   const appendMessage = (message: IntakeChatMessage) => {
@@ -338,7 +381,7 @@ export function IntakeWorkspace() {
     const nextMessages = [...messagesRef.current, userMessage];
     const nextStructuredIntake = mergeStructuredIntakeContext(
       deriveStructuredIntakeContext({
-        appUrl,
+        appUrl: getActiveTextTarget(inputMode, appUrl, figmaUrl),
         messages: nextMessages,
         selectedTestIds,
         uploadedFiles,
@@ -384,8 +427,16 @@ export function IntakeWorkspace() {
   };
 
   const handleRunValidation = async () => {
-    if (!appUrl) {
-      const error = 'Add the primary app URL before running the suite.';
+    const inputError = getInputValidationError({
+      appUrl,
+      figmaUrl,
+      inputMode,
+      screenshots,
+      videos,
+    });
+
+    if (inputError) {
+      const error = inputError;
 
       setRunState({ status: 'error', error });
       appendAssistantMessage(error, 'assistant-blocked');
@@ -410,9 +461,13 @@ export function IntakeWorkspace() {
     setRunState({ status: 'running' });
     setStageIndex(0);
 
-    const payload = buildReviewRequest({
+    const payload = await buildReviewRequest({
       appUrl,
+      figmaUrl,
+      inputMode,
       messages,
+      screenshots,
+      videos,
       selectedTestIds: pendingTestIds,
       structuredIntake,
       uploadedFiles,
@@ -456,6 +511,7 @@ export function IntakeWorkspace() {
       });
       const browserExplorationSummary =
         (data as UXReport).browserExplorationSummary || null;
+      const pipelineNotice = (data as UXReport).pipelineNotice;
       const completedTestsForCoach = mergedResultSummary?.selectedTests.filter(
         (test) => test.status === 'completed'
       );
@@ -469,6 +525,10 @@ export function IntakeWorkspace() {
         status: 'success',
         lastRunAt,
       });
+
+      if (pipelineNotice) {
+        appendAssistantMessage(pipelineNotice, 'assistant-pipeline-notice');
+      }
 
       setIsChatResponding(true);
 
@@ -578,8 +638,18 @@ export function IntakeWorkspace() {
             <div className="min-h-0">
               <AssetsPanel
                 appUrl={appUrl}
+                figmaUrl={figmaUrl}
+                inputMode={inputMode}
+                screenshots={screenshots}
+                videos={videos}
                 uploadedFiles={uploadedFiles}
                 onAppUrlChange={setAppUrl}
+                onFigmaUrlChange={setFigmaUrl}
+                onInputModeChange={handleInputModeChange}
+                onAddScreenshots={handleAddScreenshots}
+                onRemoveScreenshot={handleRemoveScreenshot}
+                onAddVideos={handleAddVideos}
+                onRemoveVideo={handleRemoveVideo}
                 onAddFiles={handleAddFiles}
                 onRemoveFile={handleRemoveFile}
               />
@@ -603,7 +673,7 @@ export function IntakeWorkspace() {
 
             <div className="min-h-0 rounded-[22px] border border-border/40 bg-white/48 shadow-[0_28px_70px_-32px_rgba(68,48,29,0.72)] backdrop-blur-sm">
               <div className="flex h-full min-h-0 flex-col">
-                <div className="min-h-0 basis-[66%] border-b border-border/40">
+                <div className="min-h-0 basis-[60%] border-b border-border/40">
                   <ValidationPanel
                     completedTestIds={completedSelectedTestIds}
                     currentStage={VALIDATION_STAGES[stageIndex]}
@@ -616,7 +686,7 @@ export function IntakeWorkspace() {
                     onToggleTest={handleToggleValidationTest}
                   />
                 </div>
-                <div className="min-h-0 basis-[34%]">
+                <div className="min-h-0 basis-[40%]">
                   <ResultsPanel
                     onOpenExpandedReader={handleOpenExpandedResults}
                     onOpenTestReport={handleOpenResultTestReport}
@@ -760,19 +830,70 @@ function getProgressStatus(
 
 function buildReviewRequest({
   appUrl,
+  figmaUrl,
+  inputMode,
   messages,
+  screenshots,
+  videos,
   selectedTestIds,
   structuredIntake,
   uploadedFiles,
 }: {
   appUrl: string;
+  figmaUrl: string;
+  inputMode: InputMode;
   messages: IntakeChatMessage[];
+  screenshots: File[];
+  videos: File[];
   selectedTestIds: ValidationTestId[];
   structuredIntake: StructuredIntakeContext;
   uploadedFiles: UploadedContextFile[];
-}): ReviewRequest {
-  const productContext = buildProductContext({
+}): Promise<ReviewRequest> {
+  return buildReviewRequestPayload({
     appUrl,
+    figmaUrl,
+    inputMode,
+    messages,
+    screenshots,
+    videos,
+    selectedTestIds,
+    structuredIntake,
+    uploadedFiles,
+  });
+}
+
+async function buildReviewRequestPayload({
+  appUrl,
+  figmaUrl,
+  inputMode,
+  messages,
+  screenshots,
+  videos,
+  selectedTestIds,
+  structuredIntake,
+  uploadedFiles,
+}: {
+  appUrl: string;
+  figmaUrl: string;
+  inputMode: InputMode;
+  messages: IntakeChatMessage[];
+  screenshots: File[];
+  videos: File[];
+  selectedTestIds: ValidationTestId[];
+  structuredIntake: StructuredIntakeContext;
+  uploadedFiles: UploadedContextFile[];
+}): Promise<ReviewRequest> {
+  const textTarget = getActiveTextTarget(inputMode, appUrl, figmaUrl).trim();
+  const normalizedScreenshots =
+    inputMode === 'screenshots'
+      ? await Promise.all(screenshots.map(readFileAsDataUrl))
+      : inputMode === 'video'
+        ? await Promise.all(videos.map(readVideoFrameAsDataUrl))
+        : undefined;
+  const productContext = buildProductContext({
+    appUrl: textTarget,
+    inputMode,
+    screenshotCount: inputMode === 'video' ? videos.length : screenshots.length,
     messages,
     structuredIntake,
     uploadedFiles,
@@ -785,14 +906,19 @@ function buildReviewRequest({
   });
 
   return {
-    appUrl: appUrl.trim(),
+    appUrl: textTarget,
     attachedFiles: mapAttachedFiles(uploadedFiles),
+    figmaUrl: inputMode === 'figma' ? textTarget : undefined,
     intakeSummary,
+    inputMode,
     productContext,
+    screenshots: normalizedScreenshots,
     selectedTestIds,
     structuredIntake,
     targetMarket: buildReviewTargetMarket({
-      appUrl,
+      appUrl: textTarget,
+      inputMode,
+      screenshotCount: inputMode === 'video' ? videos.length : screenshots.length,
       intakeSummary,
       productContext,
       structuredIntake,
@@ -802,11 +928,15 @@ function buildReviewRequest({
 
 function buildReviewTargetMarket({
   appUrl,
+  inputMode,
+  screenshotCount,
   intakeSummary,
   productContext,
   structuredIntake,
 }: {
   appUrl: string;
+  inputMode: InputMode;
+  screenshotCount: number;
   intakeSummary: string;
   productContext: string;
   structuredIntake: StructuredIntakeContext;
@@ -819,8 +949,16 @@ function buildReviewTargetMarket({
     structuredIntake.audienceNeeds.length > 0
       ? `Audience needs: ${structuredIntake.audienceNeeds.join(', ')}.`
       : '';
+  const sourceSummary =
+    inputMode === 'figma'
+      ? 'Source: Figma prototype link. Evaluate it as a simulation rather than a live navigable product.'
+      : inputMode === 'screenshots'
+        ? `Source: Uploaded screenshots only. ${screenshotCount} screenshot file(s) were selected.`
+        : inputMode === 'video'
+          ? `Source: Uploaded video files. ${screenshotCount} video file(s) were selected and sampled into static frames.`
+        : 'Source: Live product URL.';
 
-  return `Prospective users evaluating ${productLabel}. ${audienceSummary} ${needsSummary} Product context: ${productContext} Intake summary: ${intakeSummary}`.trim();
+  return `Prospective users evaluating ${productLabel}. ${audienceSummary} ${needsSummary} ${sourceSummary} Product context: ${productContext} Intake summary: ${intakeSummary}`.trim();
 }
 
 function mapReportToResultSummary(report: UXReport): ValidationResultSummary {
@@ -994,11 +1132,15 @@ function calculateCompletedTestsAverageScore(
 
 function buildProductContext({
   appUrl,
+  inputMode,
+  screenshotCount,
   messages,
   structuredIntake,
   uploadedFiles,
 }: {
   appUrl: string;
+  inputMode: InputMode;
+  screenshotCount: number;
   messages: IntakeChatMessage[];
   structuredIntake: StructuredIntakeContext;
   uploadedFiles: UploadedContextFile[];
@@ -1020,9 +1162,22 @@ function buildProductContext({
     .slice(0, 2)
     .map((file) => `${file.name}: ${file.extractedText?.slice(0, 220)}`)
     .join(' ');
+  const sourceContext =
+    inputMode === 'figma'
+      ? `Primary source is a Figma prototype link: ${appUrl}. Treat interactions as simulated rather than live browser navigation.`
+      : inputMode === 'screenshots'
+        ? screenshotCount > 0
+          ? `Primary source is ${screenshotCount} uploaded screenshot(s). Analyze them as static visual evidence rather than a live product session.`
+          : 'Primary source is screenshot uploads, but no screenshot metadata was provided.'
+        : inputMode === 'video'
+          ? screenshotCount > 0
+            ? `Primary source is ${screenshotCount} uploaded video file(s). Analyze sampled frames as a static approximation of the product journey.`
+            : 'Primary source is video uploads, but no derived frames were available.'
+        : `Primary source URL: ${appUrl}.`;
 
   const contextParts = [
     `Product target: ${productLabel}.`,
+    sourceContext,
     structuredIntake.productSummary
       ? `Structured product summary: ${structuredIntake.productSummary}`
       : undefined,
@@ -1101,6 +1256,124 @@ function getProductLabel(appUrl: string) {
   } catch {
     return 'this product';
   }
+}
+
+function getActiveTextTarget(inputMode: InputMode, appUrl: string, figmaUrl: string) {
+  return inputMode === 'figma' ? figmaUrl : appUrl;
+}
+
+function hasValidInput({
+  appUrl,
+  figmaUrl,
+  inputMode,
+  screenshots,
+  videos,
+}: {
+  appUrl: string;
+  figmaUrl: string;
+  inputMode: InputMode;
+  screenshots: File[];
+  videos: File[];
+}) {
+  return !getInputValidationError({ appUrl, figmaUrl, inputMode, screenshots, videos });
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+
+    reader.onload = () => {
+      if (typeof reader.result === 'string') {
+        resolve(reader.result);
+        return;
+      }
+
+      reject(new Error(`Could not read screenshot "${file.name}".`));
+    };
+
+    reader.onerror = () => {
+      reject(new Error(`Could not read screenshot "${file.name}".`));
+    };
+
+    reader.readAsDataURL(file);
+  });
+}
+
+function readVideoFrameAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const objectUrl = URL.createObjectURL(file);
+    const video = document.createElement('video');
+    video.preload = 'metadata';
+    video.muted = true;
+    video.playsInline = true;
+    video.src = objectUrl;
+
+    const cleanup = () => {
+      URL.revokeObjectURL(objectUrl);
+      video.removeAttribute('src');
+      video.load();
+    };
+
+    video.onloadeddata = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth || 1280;
+        canvas.height = video.videoHeight || 720;
+        const context = canvas.getContext('2d');
+
+        if (!context) {
+          cleanup();
+          reject(new Error(`Could not read video "${file.name}".`));
+          return;
+        }
+
+        context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const result = canvas.toDataURL('image/png');
+        cleanup();
+        resolve(result);
+      } catch {
+        cleanup();
+        reject(new Error(`Could not read video "${file.name}".`));
+      }
+    };
+
+    video.onerror = () => {
+      cleanup();
+      reject(new Error(`Could not read video "${file.name}".`));
+    };
+  });
+}
+
+function getInputValidationError({
+  appUrl,
+  figmaUrl,
+  inputMode,
+  screenshots,
+  videos,
+}: {
+  appUrl: string;
+  figmaUrl: string;
+  inputMode: InputMode;
+  screenshots: File[];
+  videos: File[];
+}) {
+  if (inputMode === 'figma' && !figmaUrl.trim()) {
+    return 'Add a Figma prototype link before running the suite.';
+  }
+
+  if (inputMode === 'screenshots' && screenshots.length === 0) {
+    return 'Add at least one screenshot before running the suite.';
+  }
+
+  if (inputMode === 'video' && videos.length === 0) {
+    return 'Add at least one video before running the suite.';
+  }
+
+  if (inputMode === 'url' && !appUrl.trim()) {
+    return 'Add the primary app URL before running the suite.';
+  }
+
+  return null;
 }
 
 function getValidationTestLabel(testId: ValidationTestId) {

@@ -2,6 +2,7 @@
 
 export interface Persona {
   name: string;
+  description?: string;
   age: number;
   jobTitle: string;
   companySize: string;
@@ -114,6 +115,8 @@ export interface BrowserExplorationSummary {
   summary: string;
 }
 
+export type FigmaLinkType = 'proto' | 'file' | 'make' | 'unknown';
+
 export interface UXAnalysis {
   findings: UXFinding[];
   metrics: MetricPrediction[];
@@ -126,6 +129,7 @@ export interface UXReport extends UXAnalysis {
   persona: Persona;
   screenshots: ScreenCapture[];
   browserExplorationSummary?: BrowserExplorationSummary;
+  pipelineNotice?: string;
 }
 
 export type FileIngestionStatus =
@@ -156,9 +160,14 @@ export interface StructuredIntakeContext {
   additionalNotes?: string;
 }
 
+export type InputMode = 'url' | 'figma' | 'screenshots' | 'video';
+
 export interface ReviewRequest {
   targetMarket: string;
-  appUrl: string;
+  appUrl?: string;
+  inputMode?: InputMode;
+  figmaUrl?: string;
+  screenshots?: string[];
   selectedTestIds?: ValidationTestId[];
   intakeSummary?: string;
   productContext?: string;
@@ -169,6 +178,7 @@ export interface ReviewRequest {
 export interface BrowserSessionResult {
   screenshots: ScreenCapture[];
   explorationSummary: BrowserExplorationSummary;
+  pipelineNotice?: string;
 }
 
 export type IntakeAssetStatus = 'ready' | 'pending';

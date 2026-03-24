@@ -2,7 +2,10 @@ import { Stagehand } from '@browserbasehq/stagehand';
 import type {
   BrowserExplorationAttempt,
   BrowserExplorationObjective,
+  BrowserExplorationSummary,
   BrowserSessionResult,
+  FigmaLinkType,
+  InputMode,
   Persona,
   ScreenCapture,
   StructuredIntakeContext,
@@ -11,6 +14,7 @@ import type {
 import { VALIDATION_TEST_CATALOG } from './types';
 
 interface BrowserSessionOptions {
+  inputMode?: InputMode;
   selectedTestIds?: ValidationTestId[];
   structuredIntake?: StructuredIntakeContext;
 }
@@ -63,46 +67,106 @@ export async function runBrowserSession(
     options.structuredIntake
   );
   const attempts: BrowserExplorationAttempt[] = [];
+  const isFigmaSimulation = options.inputMode === 'figma';
+  const figmaLinkType = isFigmaSimulation ? detectFigmaLinkType(appUrl) : null;
 
   try {
     await stagehand.init();
     const page = stagehand.page;
 
-    await page.goto(appUrl, { waitUntil: 'networkidle', timeout: 30000 });
-    await sleep(2000);
+    if (isFigmaSimulation) {
+      console.log('[Figma] Starting load', {
+        figmaLinkType,
+        url: appUrl,
+      });
+    }
 
-    screenshots.push(
-      await captureScreen({
-        page,
-        captureLabel: 'Landing page',
-        extractInstruction:
-          'Extract ALL visible text: headlines, subheadlines, body copy, button text, nav items, footer text, social proof, pricing. Be thorough.',
-      })
-    );
-
-    await page.act({
-      action: 'Scroll down the page slowly to see more content',
+    await loadInitialPage({
+      appUrl,
+      figmaLinkType,
+      isFigmaSimulation,
+      page,
     });
-    await sleep(1500);
+    await sleep(isFigmaSimulation ? 2500 : 2000);
 
     screenshots.push(
       await captureScreen({
         page,
-        captureLabel: 'Landing page after scroll',
+        captureLabel: isFigmaSimulation ? 'Figma prototype overview' : 'Landing page',
         extractInstruction:
-          'Extract all visible text content after scrolling, including features, testimonials, pricing, FAQ, footer, and trust signals.',
+          isFigmaSimulation
+            ? 'This is a Figma prototype. Extract all visible frame text, labels, buttons, navigation, annotations, and UI copy. Be thorough.'
+            : 'Extract ALL visible text: headlines, subheadlines, body copy, button text, nav items, footer text, social proof, pricing. Be thorough.',
       })
     );
 
-    for (const objective of objectivePlans) {
-      attempts.push(
-        await runObjectiveAttempt({
-          appUrl,
-          objective,
+    if (isFigmaSimulation) {
+      try {
+        await page.act({
+          action:
+            'Scroll or pan gently to reveal more of the visible Figma prototype without attempting navigation or clicking into flows.',
+        });
+        await sleep(1500);
+
+        screenshots.push(
+          await captureScreen({
+            page,
+            captureLabel: 'Figma prototype after scroll',
+            extractInstruction:
+              'Extract all additional visible Figma prototype text after scrolling or panning, including frame labels, calls to action, form fields, progress cues, and screen-to-screen hints.',
+          })
+        );
+      } catch (error) {
+        console.warn('[Figma] Secondary capture skipped', {
+          error,
+          figmaLinkType,
+        });
+      }
+    } else {
+      await page.act({
+        action: 'Scroll down the page slowly to see more content',
+      });
+      await sleep(1500);
+
+      screenshots.push(
+        await captureScreen({
           page,
-          screenshots,
+          captureLabel: 'Landing page after scroll',
+          extractInstruction:
+            'Extract all visible text content after scrolling, including features, testimonials, pricing, FAQ, footer, and trust signals.',
         })
       );
+    }
+
+    if (isFigmaSimulation) {
+      objectivePlans.forEach((objective) => {
+        attempts.push({
+          testId: objective.testId,
+          label: objective.label,
+          goal: objective.goal,
+          attemptedAction: 'Simulation mode only. No live clicking or route changes were attempted.',
+          status: 'planned',
+          url: page.url(),
+          pageTitle: 'Figma prototype',
+          observation:
+            'This objective should be assessed from the captured prototype frames and visible layout cues rather than live browser navigation.',
+        });
+      });
+      console.log('[Figma] Load succeeded', {
+        figmaLinkType,
+        screenshotsCaptured: screenshots.length,
+      });
+    } else {
+      for (const objective of objectivePlans) {
+        attempts.push(
+          await runObjectiveAttempt({
+            appUrl,
+            objective,
+            page,
+            screenshots,
+          })
+        );
+      }
     }
 
     return {
@@ -120,9 +184,51 @@ export async function runBrowserSession(
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
+
+    if (isFigmaSimulation) {
+      console.warn('[Figma] Load failed, triggering fallback', {
+        figmaLinkType,
+        message,
+      });
+
+      return {
+        screenshots,
+        explorationSummary: buildFigmaFallbackSummary({
+          attempts,
+          figmaLinkType: figmaLinkType || 'unknown',
+          screenshotCount: screenshots.length,
+        }),
+        pipelineNotice:
+          "I couldn't fully access this Figma prototype. I'll simulate the experience based on available context.",
+      };
+    }
+
     throw new Error(`Browser session failed: ${message}`);
   } finally {
     await stagehand.close();
+  }
+}
+
+async function loadInitialPage({
+  appUrl,
+  figmaLinkType,
+  isFigmaSimulation,
+  page,
+}: {
+  appUrl: string;
+  figmaLinkType: FigmaLinkType | null;
+  isFigmaSimulation: boolean;
+  page: Stagehand['page'];
+}) {
+  if (!isFigmaSimulation) {
+    await page.goto(appUrl, { waitUntil: 'networkidle', timeout: 30000 });
+    return;
+  }
+
+  await page.goto(appUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+  if (figmaLinkType === 'make') {
+    return;
   }
 }
 
@@ -340,11 +446,48 @@ function buildBrowserExplorationSummary(attempts: BrowserExplorationAttempt[]) {
             ? 'not found'
             : attempt.status === 'failed'
               ? 'failed'
+              : attempt.status === 'planned'
+                ? 'simulated'
               : attempt.status;
 
       return `${attempt.label}: ${statusLabel}. ${attempt.observation}`;
     })
     .join(' ');
+}
+
+function buildFigmaFallbackSummary({
+  attempts,
+  figmaLinkType,
+  screenshotCount,
+}: {
+  attempts: BrowserExplorationAttempt[];
+  figmaLinkType: FigmaLinkType;
+  screenshotCount: number;
+}): BrowserExplorationSummary {
+  return {
+    objectives: [],
+    attempts,
+    summary:
+      screenshotCount > 0
+        ? `Figma ${figmaLinkType} link fallback. The prototype was only partially accessible, so analysis should rely on the captured screen evidence plus simulation.`
+        : `Figma ${figmaLinkType} link fallback. The prototype could not be fully accessed, so analysis should simulate the experience from available context instead of live navigation.`,
+  };
+}
+
+function detectFigmaLinkType(url: string): FigmaLinkType {
+  if (url.includes('/proto/')) {
+    return 'proto';
+  }
+
+  if (url.includes('/file/')) {
+    return 'file';
+  }
+
+  if (url.includes('/make/')) {
+    return 'make';
+  }
+
+  return 'unknown';
 }
 
 async function safePageTitle(page: Stagehand['page']) {

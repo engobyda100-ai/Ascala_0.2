@@ -4,6 +4,8 @@
  */
 export const PERSONA_PROMPT = `You are a UX research expert. Given the following target market description, generate ONE detailed, realistic user persona.
 
+Return ONLY valid JSON. Do not include explanations, markdown, code fences, or extra text.
+
 TARGET MARKET:
 {{TARGET_MARKET}}
 
@@ -25,9 +27,16 @@ ATTACHED FILE METADATA:
 ATTACHED FILE EXTRACTED CONTEXT:
 {{ATTACHED_FILE_CONTEXT}}
 
+INPUT MODE:
+{{INPUT_MODE}}
+
+PERSONA GENERATION CONTEXT:
+{{PERSONA_CONTEXT}}
+
 Return a JSON object with exactly this structure:
 {
   "name": "Full Name",
+  "description": "A concise one-sentence description of the user and their mindset",
   "age": 34,
   "jobTitle": "Their job title",
   "companySize": "e.g. 10-50 employees",
@@ -37,6 +46,21 @@ Return a JSON object with exactly this structure:
   "quote": "A sentence that captures their mindset",
   "signupTriggers": ["What would make them sign up"],
   "bounceTriggers": ["What would make them leave"]
+}
+
+JSON schema reminder:
+{
+  "name": string,
+  "description": string,
+  "age": number,
+  "jobTitle": string,
+  "companySize": string,
+  "goals": string[],
+  "frustrations": string[],
+  "techSavviness": number,
+  "quote": string,
+  "signupTriggers": string[],
+  "bounceTriggers": string[]
 }
 
 Make the persona feel like a real person. Ground every attribute in the target market description, structured intake context, uploaded project documents, and any additional intake context. Prefer the structured intake fields when they are available. Be specific, not generic.`;
@@ -75,6 +99,12 @@ ATTACHED FILE METADATA:
 
 ATTACHED FILE EXTRACTED CONTEXT:
 {{ATTACHED_FILE_CONTEXT}}
+
+INPUT MODE:
+{{INPUT_MODE}}
+
+SCREENSHOT FLOW GUIDANCE:
+{{SCREENSHOT_FLOW_GUIDANCE}}
 
 The screenshots of each page are attached as images below.
 
@@ -165,6 +195,11 @@ RULES:
 - Only comment on what you can actually SEE in the screenshots and extracted content.
 - Do NOT invent features or content that isn't visible.
 - Use the browser exploration summary to understand which selected-test objectives were actually attempted and what evidence was reached.
+- If the input mode indicates a Figma prototype, treat it as simulation mode: infer likely user interaction from the visible layout and frames instead of assuming real browser navigation happened.
+- If the input mode indicates screenshots, treat the screenshots as a user journey. When multiple screenshots are provided, interpret them as Step 1, Step 2, Step 3, etc. If order is unclear, assume the most logical progression.
+- For screenshot mode, mentally walk through each screen in sequence and determine: what the user sees, what they are trying to do, what is clear vs confusing, and what they would most likely do next.
+- For screenshot mode, use that step-by-step simulation to shape the existing output: put the strongest per-screen journey observations into findings, make personaVerdict read like a flow-level reaction, and make the top recommendation/selected test summaries reflect the biggest friction point, one key insight, and the most important next action.
+- For a single screenshot in screenshot mode, treat it as a landing or first-impression experience.
 - When browser attempts for a selected test were limited or unsuccessful, reflect that uncertainty in the findings and recommendations for that test instead of pretending the flow was fully explored.
 - Prefer the structured intake context for product, audience, onboarding, engagement, accessibility, and compliance priorities when it is available.
 - Use uploaded project documents as supporting product, audience, onboarding, and compliance context when available.

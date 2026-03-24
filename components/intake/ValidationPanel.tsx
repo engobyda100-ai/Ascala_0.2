@@ -1,6 +1,8 @@
 import { Loader2 } from 'lucide-react';
+import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import type {
   ValidationTestDefinition,
@@ -32,23 +34,18 @@ export function ValidationPanel({
   onRun,
   onToggleTest,
 }: ValidationPanelProps) {
-  const totalTests = groups.reduce((sum, group) => sum + group.tests.length, 0);
   const completedCount = completedTestIds.length;
   const pendingCount = pendingTestIds.length;
   const selectedCount = selectedTestIds.length;
   const isRunning = runState.status === 'running';
   const canExecute = canRun && selectedCount > 0 && !isRunning;
   const showGroupTitle = groups.length > 1;
+  const [customTestDraft, setCustomTestDraft] = useState('');
+  const tokenCost = selectedCount * 4;
 
   return (
     <Card className="flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 bg-transparent shadow-none">
-      <CardHeader className="min-h-[64px] justify-center border-b border-border/45 px-4 py-3">
-        <CardTitle className="text-base font-semibold">Validation Suite</CardTitle>
-        <p className="mt-0.5 text-[11px] text-muted-foreground">
-          {selectedCount} of {totalTests} tests selected
-        </p>
-      </CardHeader>
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-2 px-4 py-2.5">
+      <CardContent className="flex min-h-0 flex-1 flex-col gap-2 px-4 py-3">
         <div className="min-h-0 flex-1 overflow-y-auto pr-1">
           <div className="space-y-2.5">
             <div className="space-y-0.5">
@@ -62,7 +59,7 @@ export function ValidationPanel({
                   </div>
                 ) : null}
                 <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/28 p-2">
-                  {group.tests.map((test, index) => {
+                  {group.tests.map((test) => {
                     const isSelected = selectedTestIds.includes(test.id);
                     const isDisabled = isRunning;
 
@@ -81,6 +78,37 @@ export function ValidationPanel({
                 </div>
               </section>
             ))}
+
+            <section className="rounded-2xl border border-border/45 bg-white/32 px-3 py-2.5">
+              <div className="flex items-start justify-between gap-2">
+                <div className="min-w-0 pr-1">
+                  <p className="text-[13px] font-semibold leading-4">
+                    Create your own{' '}
+                    <span className="font-medium text-muted-foreground">[Coming soon]</span>
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={false}
+                  aria-label="Create your own coming soon"
+                  disabled
+                  className={cn(
+                    'relative mt-0.5 h-6 w-11 shrink-0 rounded-full border border-border/35 bg-white/45 shadow-[0_6px_16px_-10px_rgba(61,23,0,0.45)] opacity-60'
+                  )}
+                >
+                  <span className="absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm" />
+                </button>
+              </div>
+              <div className="relative mt-1.5">
+                <Input
+                  value={customTestDraft}
+                  onChange={(event) => setCustomTestDraft(event.target.value)}
+                  placeholder="Describe a custom validation test"
+                  className="h-9 border-border/50 bg-white/82 px-3 text-sm"
+                />
+              </div>
+            </section>
           </div>
         </div>
 
@@ -97,7 +125,7 @@ export function ValidationPanel({
                       : pendingCount > 0
                         ? `${pendingCount} pending · ${completedCount} completed`
                         : selectedCount > 0
-                          ? `${completedCount} completed`
+                          ? `${selectedCount} selected`
                         : 'Select at least one test'}
               </p>
             </div>
@@ -105,7 +133,7 @@ export function ValidationPanel({
               onClick={onRun}
               disabled={!canExecute}
               size="sm"
-              className="h-8 rounded-full bg-[#3D1700] px-4 text-xs text-white shadow-sm hover:bg-[#3D1700]/90"
+              className="h-8 min-w-[154px] rounded-full bg-[#3D1700] px-4 text-xs text-white shadow-sm hover:bg-[#3D1700]/90"
             >
               {isRunning ? (
                 <>
@@ -113,7 +141,7 @@ export function ValidationPanel({
                   Running
                 </>
               ) : (
-                <>Run Tests</>
+                <>Run Tests = {tokenCost} tokens</>
               )}
             </Button>
           </div>
@@ -146,7 +174,7 @@ function ValidationToggleRow({
   return (
     <div
       className={cn(
-        'flex min-h-[74px] items-start justify-between gap-2 rounded-2xl px-3 py-2.5 transition-colors',
+        'flex min-h-[52px] items-start justify-between gap-2 rounded-2xl px-3 py-1.5 shadow-[0_12px_24px_-22px_rgba(61,23,0,0.45)] transition-colors',
         isSelected
           ? 'bg-white/78 shadow-[0_14px_30px_-24px_rgba(68,48,29,0.72)] ring-1 ring-[#3D1700]/10'
           : 'bg-white/20 opacity-80',
@@ -156,7 +184,7 @@ function ValidationToggleRow({
       <div className="min-w-0 flex-1 pr-1">
         <p
           className={cn(
-            'text-[13px] font-medium leading-4.5',
+            'text-[13px] font-medium leading-3.5',
             isSelected ? 'text-foreground' : 'text-foreground'
           )}
         >
@@ -164,7 +192,7 @@ function ValidationToggleRow({
         </p>
         <p
           className={cn(
-            'mt-1 text-[11px] leading-4',
+            'mt-0.5 text-[10px] leading-3',
             isSelected ? 'text-muted-foreground' : 'text-muted-foreground/75'
           )}
         >
@@ -185,7 +213,7 @@ function ValidationToggleRow({
         disabled={isDisabled}
         onClick={() => onToggle(test.id)}
         className={cn(
-          'relative mt-0.5 h-6 w-11 shrink-0 rounded-full border transition-colors',
+          'relative mt-0.5 h-6 w-11 shrink-0 rounded-full border shadow-[0_6px_16px_-10px_rgba(61,23,0,0.45)] transition-colors',
           isSelected
             ? 'border-[#3D1700]/70 bg-[#3D1700]'
             : 'border-border/35 bg-white/45',
