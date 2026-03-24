@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { SendHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -11,10 +12,8 @@ import {
 } from '@/lib/types';
 
 interface AgentChatPanelProps {
-  appUrl: string;
   checkedChecklistItems: string[];
   intakeSignalCount: number;
-  uploadedFileCount: number;
   draftMessage: string;
   isResponding: boolean;
   messages: IntakeChatMessage[];
@@ -27,10 +26,8 @@ interface AgentChatPanelProps {
 }
 
 export function AgentChatPanel({
-  appUrl,
   checkedChecklistItems,
   intakeSignalCount,
-  uploadedFileCount,
   draftMessage,
   isResponding,
   messages,
@@ -43,7 +40,6 @@ export function AgentChatPanel({
 }: AgentChatPanelProps) {
   const threadRef = useRef<HTMLDivElement>(null);
   const modeLabel = getModeLabel(mode);
-  const helperLine = 'Press Enter to send. Use Shift+Enter for a new line.';
 
   useEffect(() => {
     const thread = threadRef.current;
@@ -59,21 +55,23 @@ export function AgentChatPanel({
   }, [isResponding, messages.length]);
 
   return (
-    <Card className="flex h-full min-h-0 flex-col overflow-hidden rounded-[24px] border-border/45 bg-white/58 shadow-[0_18px_40px_-28px_rgba(68,48,29,0.55)] backdrop-blur-sm">
-      <CardHeader className="border-b border-border/45 px-6 pb-2 pt-3">
-        <div className="flex items-start justify-between gap-4">
+    <Card className="flex h-full min-h-0 flex-col overflow-hidden rounded-[24px] border-border/45 bg-white/58 shadow-[0_28px_70px_-32px_rgba(68,48,29,0.72)] backdrop-blur-sm">
+      <CardHeader className="min-h-[64px] justify-center border-b border-border/45 px-6 py-3">
+        <div className="flex items-center justify-between gap-4">
           <div className="space-y-0.5">
             <div className="flex items-center gap-2">
               <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
               <span className="text-[11px] font-medium text-muted-foreground">Online</span>
             </div>
-            <CardTitle className="text-base font-semibold">ASCALA Intake Agent</CardTitle>
+            <CardTitle className="text-base font-semibold">Ascala Intake Agent</CardTitle>
           </div>
           <div className="text-right text-[11px] leading-4 text-muted-foreground">
             <p>{isResponding ? 'Coach is thinking' : modeLabel}</p>
-            <p>{appUrl ? 'App URL loaded' : 'Waiting for app URL'}</p>
-            <p>{uploadedFileCount > 0 ? `${uploadedFileCount} file${uploadedFileCount === 1 ? '' : 's'} attached` : 'No files attached'}</p>
-            <p>{intakeSignalCount > 0 ? `${intakeSignalCount} intake signal${intakeSignalCount === 1 ? '' : 's'} captured` : 'Building product understanding from chat'}</p>
+            <p>
+              {intakeSignalCount > 0
+                ? `${intakeSignalCount} intake signal${intakeSignalCount === 1 ? '' : 's'} captured`
+                : 'Building product understanding'}
+            </p>
           </div>
         </div>
       </CardHeader>
@@ -96,7 +94,7 @@ export function AgentChatPanel({
                   className={cn(
                     'rounded-3xl px-4 py-3.5 shadow-sm',
                     message.role === 'user'
-                      ? 'rounded-br-lg bg-primary text-primary-foreground'
+                      ? 'rounded-br-lg bg-[#3D1700] text-white'
                       : 'rounded-bl-lg border border-border/45 bg-white/80'
                   )}
                 >
@@ -115,12 +113,12 @@ export function AgentChatPanel({
                   className={cn(
                     'flex items-center gap-2 px-1 text-[11px]',
                     message.role === 'user'
-                      ? 'justify-end text-primary/70'
+                      ? 'justify-end text-[#3D1700]/70'
                       : 'justify-start text-muted-foreground'
                   )}
                 >
                   <span className="font-medium">
-                    {message.role === 'user' ? 'You' : 'ASCALA'}
+                    {message.role === 'user' ? 'You' : 'Ascala'}
                   </span>
                   <span>{message.timestamp}</span>
                 </div>
@@ -137,7 +135,7 @@ export function AgentChatPanel({
                   </p>
                 </div>
                 <div className="flex items-center gap-2 px-1 text-[11px] text-muted-foreground">
-                  <span className="font-medium">ASCALA</span>
+                  <span className="font-medium">Ascala</span>
                   <span>Now</span>
                 </div>
               </div>
@@ -146,35 +144,34 @@ export function AgentChatPanel({
         </div>
 
         <form
-          className="space-y-3 border-t border-border/45 bg-white/34 px-6 py-4"
+          className="mt-auto border-t border-border/45 bg-white/34 px-6 py-3"
           onSubmit={(event) => {
             event.preventDefault();
             onSendMessage();
           }}
         >
-          <Textarea
-            id="agentMessage"
-            value={draftMessage}
-            onChange={(event) => onDraftChange(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' && !event.shiftKey && !isResponding) {
-                event.preventDefault();
-                onSendMessage();
-              }
-            }}
-            placeholder="Describe the product, share important context from uploaded assets, or ask which validation tests Ascala should run next."
-            className="min-h-[108px] resize-none rounded-[22px] border-border/45 bg-white/72 px-4 py-3 shadow-sm"
-          />
-          <div className="flex items-start justify-between gap-3">
-            <p className="max-w-md text-xs leading-5 text-muted-foreground">
-              {helperLine}
-            </p>
+          <div className="relative">
+            <Textarea
+              id="agentMessage"
+              value={draftMessage}
+              onChange={(event) => onDraftChange(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' && !event.shiftKey && !isResponding) {
+                  event.preventDefault();
+                  onSendMessage();
+                }
+              }}
+              placeholder="Describe the product, share important context from uploaded assets, or ask which validation tests Ascala should run next."
+              className="min-h-[64px] resize-none rounded-[24px] border-border/45 bg-white/76 px-4 py-3 pr-16 shadow-sm"
+            />
             <Button
               type="submit"
               disabled={!draftMessage.trim() || isResponding}
-              className="rounded-full px-5 shadow-sm"
+              size="icon"
+              className="absolute bottom-3 right-3 h-10 w-10 rounded-full bg-[#3D1700] text-[#C26A43] shadow-sm hover:bg-[#3D1700]/90"
+              aria-label={isResponding ? 'Thinking' : 'Send message'}
             >
-              {isResponding ? 'Thinking…' : 'Send'}
+              <SendHorizontal className="h-4 w-4 text-[#C26A43]" />
             </Button>
           </div>
         </form>

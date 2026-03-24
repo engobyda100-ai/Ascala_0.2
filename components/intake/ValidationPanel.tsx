@@ -42,7 +42,7 @@ export function ValidationPanel({
 
   return (
     <Card className="flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 bg-transparent shadow-none">
-      <CardHeader className="border-b border-border/45 px-4 pb-2 pt-3">
+      <CardHeader className="min-h-[64px] justify-center border-b border-border/45 px-4 py-3">
         <CardTitle className="text-base font-semibold">Validation Suite</CardTitle>
         <p className="mt-0.5 text-[11px] text-muted-foreground">
           {selectedCount} of {totalTests} tests selected
@@ -61,7 +61,7 @@ export function ValidationPanel({
                     <h3 className="text-[12px] font-semibold">{group.label}</h3>
                   </div>
                 ) : null}
-                <div className="overflow-hidden rounded-2xl bg-white/28">
+                <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/28 p-2">
                   {group.tests.map((test, index) => {
                     const isSelected = selectedTestIds.includes(test.id);
                     const isDisabled = isRunning;
@@ -73,7 +73,6 @@ export function ValidationPanel({
                         isCompleted={completedTestIds.includes(test.id)}
                         isPending={pendingTestIds.includes(test.id)}
                         isSelected={isSelected}
-                        isLast={index === group.tests.length - 1}
                         onToggle={onToggleTest}
                         isDisabled={isDisabled}
                       />
@@ -102,7 +101,12 @@ export function ValidationPanel({
                         : 'Select at least one test'}
               </p>
             </div>
-            <Button onClick={onRun} disabled={!canExecute} size="sm" className="h-8 rounded-full px-4 text-xs shadow-sm">
+            <Button
+              onClick={onRun}
+              disabled={!canExecute}
+              size="sm"
+              className="h-8 rounded-full bg-[#3D1700] px-4 text-xs text-white shadow-sm hover:bg-[#3D1700]/90"
+            >
               {isRunning ? (
                 <>
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -130,7 +134,6 @@ function ValidationToggleRow({
   isPending,
   isSelected,
   isDisabled,
-  isLast,
   onToggle,
 }: {
   test: ValidationTestDefinition;
@@ -138,25 +141,41 @@ function ValidationToggleRow({
   isPending: boolean;
   isSelected: boolean;
   isDisabled: boolean;
-  isLast: boolean;
   onToggle: (testId: ValidationTestId) => void;
 }) {
   return (
     <div
       className={cn(
-        'flex items-center justify-between gap-3 rounded-2xl px-3.5 py-2.5 transition-colors',
-        !isLast && 'mb-1',
-        isSelected ? 'bg-white/72 shadow-sm ring-1 ring-primary/10' : 'bg-white/42',
+        'flex min-h-[74px] items-start justify-between gap-2 rounded-2xl px-3 py-2.5 transition-colors',
+        isSelected
+          ? 'bg-white/78 shadow-[0_14px_30px_-24px_rgba(68,48,29,0.72)] ring-1 ring-[#3D1700]/10'
+          : 'bg-white/20 opacity-80',
         isDisabled && !isSelected && 'opacity-60'
       )}
     >
-      <div className="min-w-0 pr-2">
-        <p className="text-[13px] font-medium leading-5">{test.label}</p>
-        {isSelected ? (
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            {isPending ? 'Pending run' : isCompleted ? 'Completed' : 'Selected'}
-          </p>
-        ) : null}
+      <div className="min-w-0 flex-1 pr-1">
+        <p
+          className={cn(
+            'text-[13px] font-medium leading-4.5',
+            isSelected ? 'text-foreground' : 'text-foreground'
+          )}
+        >
+          {test.label}
+        </p>
+        <p
+          className={cn(
+            'mt-1 text-[11px] leading-4',
+            isSelected ? 'text-muted-foreground' : 'text-muted-foreground/75'
+          )}
+        >
+          {isSelected
+            ? isPending
+              ? 'Pending run'
+              : isCompleted
+                ? 'Completed'
+                : 'Selected'
+            : 'Not selected'}
+        </p>
       </div>
       <button
         type="button"
@@ -166,14 +185,16 @@ function ValidationToggleRow({
         disabled={isDisabled}
         onClick={() => onToggle(test.id)}
         className={cn(
-          'relative h-7 w-12 rounded-full border transition-colors',
-          isSelected ? 'border-primary/70 bg-primary' : 'border-border/55 bg-white/75',
+          'relative mt-0.5 h-6 w-11 shrink-0 rounded-full border transition-colors',
+          isSelected
+            ? 'border-[#3D1700]/70 bg-[#3D1700]'
+            : 'border-border/35 bg-white/45',
           isDisabled ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'
         )}
       >
         <span
           className={cn(
-            'absolute left-0.5 top-0.5 h-6 w-6 rounded-full bg-white shadow-sm transition-transform',
+            'absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform',
             isSelected && 'translate-x-5'
           )}
         />

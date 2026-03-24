@@ -1,6 +1,8 @@
 'use client';
 
+import Image from 'next/image';
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { CircleUserRound, Settings, Share2 } from 'lucide-react';
 import { AssetsPanel } from '@/components/intake/AssetsPanel';
 import { AgentChatPanel } from '@/components/intake/AgentChatPanel';
 import {
@@ -61,7 +63,7 @@ const INITIAL_MESSAGES: IntakeChatMessage[] = [
     id: 'assistant-welcome',
     role: 'assistant',
     content:
-      'I\'m here to understand the product, the audience it serves, and the onboarding or conversion risks that matter most.\n\nIf you add supporting assets or structured inputs in this workspace, I can use them as context while shaping the intake. I can also recommend which validation tests to run next so the right-side suite stays focused on the highest-value checks.',
+      "Hi, I'm here to help! The more context you give me, the more insights and test recommendations I can give you.  What brings you here today?",
     timestamp: createChatTimestamp(),
   },
 ];
@@ -521,8 +523,8 @@ export function IntakeWorkspace() {
   };
 
   const handleOpenExpandedResults = () => {
-    if (!activeResultTest && preferredResultTest) {
-      setActiveResultTestId((preferredResultTest as { id: string }).id);
+    if (preferredResultTest) {
+      setActiveResultTestId(preferredResultTest.id);
     }
 
     setIsResultPopupOpen(false);
@@ -532,31 +534,43 @@ export function IntakeWorkspace() {
   return (
     <div className="h-full overflow-hidden px-3 py-3 sm:px-4 sm:py-4 lg:px-5">
       <div className="flex h-full min-h-0 flex-col gap-3">
-        <header className="rounded-2xl border border-border/40 bg-white/45 px-4 py-2.5 shadow-[0_10px_30px_-22px_rgba(68,48,29,0.5)] backdrop-blur-sm sm:px-5">
+        <header className="relative rounded-2xl bg-white/45 px-4 py-2 shadow-[0_20px_48px_-26px_rgba(61,23,0,0.34)] backdrop-blur-sm sm:px-5">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
             <div className="min-w-0">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                Ascala Intake Workspace
-              </p>
-              <div className="mt-0.5 flex flex-col gap-0.5 lg:flex-row lg:items-baseline lg:gap-2.5">
-                <h1 className="text-lg font-semibold tracking-tight">Validation dashboard</h1>
-                <p className="text-[13px] text-muted-foreground">
-                  Single-page intake flow with in-place results.
-                </p>
-              </div>
+              <Image
+                alt="Ascala"
+                className="h-10 w-auto object-contain sm:h-12"
+                height={84}
+                priority
+                src="/ascala-logo.png"
+                width={358}
+              />
             </div>
-            <div className="flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
-              <span className="rounded-full border border-border/70 bg-background/50 px-2.5 py-1">
-                Desktop-first
-              </span>
-              <span className="rounded-full border border-border/70 bg-background/50 px-2.5 py-1">
-                Stable 3-panel layout
-              </span>
-              <span className="rounded-full border border-border/70 bg-background/50 px-2.5 py-1">
-                Results stay docked
-              </span>
+            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background/50 px-3 py-1.5 font-medium transition-colors hover:bg-background/70"
+              >
+                <Share2 className="h-3.5 w-3.5 text-[#C26A43]" />
+                <span>Share</span>
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background/50 px-3 py-1.5 font-medium transition-colors hover:bg-background/70"
+              >
+                <Settings className="h-3.5 w-3.5 text-[#C26A43]" />
+                <span>Settings</span>
+              </button>
+              <button
+                type="button"
+                className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background/50 px-3 py-1.5 font-medium transition-colors hover:bg-background/70"
+              >
+                <CircleUserRound className="h-3.5 w-3.5 text-[#C26A43]" />
+                <span>Account</span>
+              </button>
             </div>
           </div>
+          <div className="pointer-events-none absolute inset-x-6 -bottom-4 h-6 bg-gradient-to-b from-[rgba(61,23,0,0.14)] via-[rgba(61,23,0,0.05)] to-transparent blur-md" />
         </header>
 
         <div className="relative min-h-0 flex-1">
@@ -573,10 +587,8 @@ export function IntakeWorkspace() {
 
             <div className="min-h-0">
               <AgentChatPanel
-                appUrl={appUrl}
                 checkedChecklistItems={checkedChecklistItems}
                 intakeSignalCount={intakeSignalCount}
-                uploadedFileCount={uploadedFiles.length}
                 draftMessage={draftMessage}
                 isResponding={isChatResponding}
                 messages={messages}
@@ -589,7 +601,7 @@ export function IntakeWorkspace() {
               />
             </div>
 
-            <div className="min-h-0 rounded-[22px] border border-border/40 bg-white/48 shadow-[0_18px_40px_-28px_rgba(68,48,29,0.55)] backdrop-blur-sm">
+            <div className="min-h-0 rounded-[22px] border border-border/40 bg-white/48 shadow-[0_28px_70px_-32px_rgba(68,48,29,0.72)] backdrop-blur-sm">
               <div className="flex h-full min-h-0 flex-col">
                 <div className="min-h-0 basis-[66%] border-b border-border/40">
                   <ValidationPanel

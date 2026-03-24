@@ -1,6 +1,6 @@
 import { useRef, useState } from 'react';
 import { FileText, Upload, X } from 'lucide-react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
@@ -25,19 +25,13 @@ export function AssetsPanel({
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <Card className="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border-border/45 bg-white/58 shadow-[0_18px_40px_-28px_rgba(68,48,29,0.55)] backdrop-blur-sm">
-      <CardHeader className="border-b border-border/45 px-4 pb-2.5 pt-3.5">
+    <Card className="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border-border/45 bg-white/58 shadow-[0_28px_70px_-32px_rgba(68,48,29,0.72)] backdrop-blur-sm">
+      <CardHeader className="min-h-[64px] justify-center border-b border-border/45 px-4 py-3">
         <CardTitle className="text-base font-semibold">Project Assets</CardTitle>
-        <CardDescription>
-          App URL and attached files.
-        </CardDescription>
       </CardHeader>
       <CardContent className="flex-1 space-y-4 overflow-y-auto px-4 py-3.5">
         <section className="space-y-4">
           <div className="space-y-1.5">
-            <label htmlFor="appUrl" className="text-[13px] font-medium leading-none">
-              Primary app URL
-            </label>
             <Input
               id="appUrl"
               type="url"
@@ -50,10 +44,6 @@ export function AssetsPanel({
         </section>
 
         <section className="space-y-2.5">
-          <div className="space-y-1">
-            <h3 className="text-[13px] font-semibold">Attached context</h3>
-          </div>
-
           <input
             ref={inputRef}
             type="file"

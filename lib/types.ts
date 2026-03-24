@@ -58,7 +58,7 @@ export interface ValidationTestCatalogItem {
 export const VALIDATION_TEST_CATALOG: ValidationTestCatalogItem[] = [
   {
     id: 'engagement-habit-formation',
-    label: 'Engagement and habit formation',
+    label: 'Engagement',
   },
   {
     id: 'onboarding',

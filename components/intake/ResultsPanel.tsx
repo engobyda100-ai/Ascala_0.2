@@ -34,7 +34,7 @@ export function ResultsPanel({
 }: ResultsPanelProps) {
   return (
     <Card className="flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 bg-transparent shadow-none">
-      <CardHeader className="border-b border-border/60 px-4 pb-2 pt-3.5">
+      <CardHeader className="min-h-[64px] justify-center border-b border-border/60 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <CardTitle className="text-base font-semibold">Results</CardTitle>
           {runState.status === 'success' &&
