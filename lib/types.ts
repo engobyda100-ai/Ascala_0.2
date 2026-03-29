@@ -14,6 +14,10 @@ export interface Persona {
   bounceTriggers: string[];
 }
 
+export interface GeneratedPersona extends Persona {
+  id: string;
+}
+
 export interface ScreenCapture {
   url: string;
   screenshotBase64: string;
@@ -42,6 +46,24 @@ export interface Recommendation {
   whatToChange: string;
   whyItMatters: string;
   expectedImpact: string;
+}
+
+export type ResultActionPriority = 'urgent' | 'important' | 'later';
+
+export interface ResultQuotes {
+  positive: string;
+  negative: string;
+}
+
+export interface ResultActionableChange {
+  priority: ResultActionPriority;
+  text: string;
+}
+
+export interface ResultNarrativeBlocks {
+  quotes: ResultQuotes;
+  actionableChanges: ResultActionableChange[];
+  keyInsights: string[];
 }
 
 export type ValidationTestId =
@@ -75,7 +97,7 @@ export const VALIDATION_TEST_CATALOG: ValidationTestCatalogItem[] = [
   },
 ];
 
-export interface ValidationTestResult {
+export interface ValidationTestResult extends ResultNarrativeBlocks {
   id: ValidationTestId;
   label: string;
   score: number;
@@ -176,6 +198,21 @@ export interface ReviewRequest {
   productContext?: string;
   structuredIntake?: StructuredIntakeContext;
   attachedFiles?: ReviewAttachedFileMetadata[];
+  selectedPersona?: GeneratedPersona;
+}
+
+export interface PersonaGenerationRequest {
+  targetMarket: string;
+  personaCount: number;
+  inputMode?: InputMode;
+  intakeSummary?: string;
+  productContext?: string;
+  structuredIntake?: StructuredIntakeContext;
+  attachedFiles?: ReviewAttachedFileMetadata[];
+}
+
+export interface PersonaGenerationResponse {
+  personas: GeneratedPersona[];
 }
 
 export interface BrowserSessionResult {
@@ -237,6 +274,7 @@ export interface ChatAgentRequest {
   selectedTestIds: ValidationTestId[];
   structuredIntake?: StructuredIntakeContext;
   attachedFiles?: ReviewAttachedFileMetadata[];
+  selectedPersona?: GeneratedPersona | null;
   latestResultsSummary?: ValidationResultSummary | null;
   selectedTestResults?: ValidationResultTestSummary[];
   browserExplorationSummary?: BrowserExplorationSummary;
@@ -291,7 +329,7 @@ export interface ValidationResultListItem {
   detail: string;
 }
 
-export interface ValidationResultTestSummary {
+export interface ValidationResultTestSummary extends ResultNarrativeBlocks {
   id: ValidationTestId;
   label: string;
   score?: number;

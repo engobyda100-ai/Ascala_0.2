@@ -4,6 +4,7 @@ import { runBrowserSession } from '@/lib/browser';
 import type {
   BrowserExplorationSummary,
   InputMode,
+  Persona,
   ReviewRequest,
   ScreenCapture,
   UXReport,
@@ -25,6 +26,7 @@ export async function POST(req: NextRequest) {
       productContext,
       structuredIntake,
       attachedFiles = [],
+      selectedPersona,
     } = body;
 
     if (!targetMarket) {
@@ -65,15 +67,22 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log('[1/3] Generating persona...');
-    const persona = await generatePersona(targetMarket, {
-      attachedFiles,
-      inputMode: resolvedInputMode,
-      intakeSummary,
-      productContext,
-      structuredIntake,
-      selectedTestIds,
-    });
+    let persona: Persona;
+
+    if (selectedPersona) {
+      persona = selectedPersona;
+      console.log(`[1/3] Using selected persona: ${persona.name}...`);
+    } else {
+      console.log('[1/3] Generating persona...');
+      persona = await generatePersona(targetMarket, {
+        attachedFiles,
+        inputMode: resolvedInputMode,
+        intakeSummary,
+        productContext,
+        structuredIntake,
+        selectedTestIds,
+      });
+    }
 
     const sourceUrl =
       resolvedInputMode === 'figma' ? figmaUrl?.trim() || appUrl?.trim() || '' : appUrl?.trim() || '';

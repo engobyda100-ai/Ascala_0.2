@@ -31,7 +31,7 @@ function sleep(ms: number): Promise<void> {
 
 export async function runBrowserSession(
   appUrl: string,
-  _persona: Persona,
+  persona: Persona,
   options: BrowserSessionOptions = {}
 ): Promise<BrowserSessionResult> {
   const browserbaseApiKey = process.env.BROWSERBASE_API_KEY;
@@ -64,7 +64,8 @@ export async function runBrowserSession(
   const screenshots: ScreenCapture[] = [];
   const objectivePlans = createObjectivePlans(
     options.selectedTestIds || [],
-    options.structuredIntake
+    options.structuredIntake,
+    persona
   );
   const attempts: BrowserExplorationAttempt[] = [];
   const isFigmaSimulation = options.inputMode === 'figma';
@@ -95,8 +96,8 @@ export async function runBrowserSession(
         captureLabel: isFigmaSimulation ? 'Figma prototype overview' : 'Landing page',
         extractInstruction:
           isFigmaSimulation
-            ? 'This is a Figma prototype. Extract all visible frame text, labels, buttons, navigation, annotations, and UI copy. Be thorough.'
-            : 'Extract ALL visible text: headlines, subheadlines, body copy, button text, nav items, footer text, social proof, pricing. Be thorough.',
+            ? `This is a Figma prototype. Extract all visible frame text, labels, buttons, navigation, annotations, and UI copy. Be thorough. ${buildPersonaExtractionLens(persona)}`
+            : `Extract ALL visible text: headlines, subheadlines, body copy, button text, nav items, footer text, social proof, pricing. Be thorough. ${buildPersonaExtractionLens(persona)}`,
       })
     );
 
@@ -113,7 +114,7 @@ export async function runBrowserSession(
             page,
             captureLabel: 'Figma prototype after scroll',
             extractInstruction:
-              'Extract all additional visible Figma prototype text after scrolling or panning, including frame labels, calls to action, form fields, progress cues, and screen-to-screen hints.',
+              `Extract all additional visible Figma prototype text after scrolling or panning, including frame labels, calls to action, form fields, progress cues, and screen-to-screen hints. ${buildPersonaExtractionLens(persona)}`,
           })
         );
       } catch (error) {
@@ -131,11 +132,11 @@ export async function runBrowserSession(
       screenshots.push(
         await captureScreen({
           page,
-          captureLabel: 'Landing page after scroll',
-          extractInstruction:
-            'Extract all visible text content after scrolling, including features, testimonials, pricing, FAQ, footer, and trust signals.',
-        })
-      );
+        captureLabel: 'Landing page after scroll',
+        extractInstruction:
+          `Extract all visible text content after scrolling, including features, testimonials, pricing, FAQ, footer, and trust signals. ${buildPersonaExtractionLens(persona)}`,
+      })
+    );
     }
 
     if (isFigmaSimulation) {
@@ -269,28 +270,57 @@ async function runObjectiveAttempt({
       };
     }
 
-    await page.act({
-      action: objective.actionInstruction,
-    });
-    await sleep(1800);
+    try {
+      await page.act({
+        action: objective.actionInstruction,
+      });
+      await sleep(1800);
 
-    const screen = await captureScreen({
-      page,
-      captureLabel: `${objective.label} evidence`,
-      extractInstruction: objective.extractInstruction,
-      relatedTestIds: [objective.testId],
-      observation: objective.goal,
-    });
+      const screen = await captureScreen({
+        page,
+        captureLabel: `${objective.label} evidence`,
+        extractInstruction: objective.extractInstruction,
+        relatedTestIds: [objective.testId],
+        observation: objective.goal,
+      });
 
-    screenshots.push(screen);
+      screenshots.push(screen);
 
-    return {
-      ...baseAttempt,
-      status: 'completed',
-      url: screen.url,
-      pageTitle: screen.pageTitle,
-      observation: extractAttemptObservation(screen.extractedContent),
-    };
+      return {
+        ...baseAttempt,
+        status: 'completed',
+        url: screen.url,
+        pageTitle: screen.pageTitle,
+        observation: extractAttemptObservation(screen.extractedContent),
+      };
+    } catch (actionError) {
+      const actionMessage =
+        actionError instanceof Error
+          ? actionError.message
+          : 'The objective action could not be completed.';
+
+      const fallbackScreen = await captureScreen({
+        page,
+        captureLabel: `${objective.label} fallback evidence`,
+        extractInstruction: objective.extractInstruction,
+        relatedTestIds: [objective.testId],
+        observation: `${objective.goal} Fallback evidence captured after action failure.`,
+      });
+
+      screenshots.push(fallbackScreen);
+
+      return {
+        ...baseAttempt,
+        status: 'attempted',
+        url: fallbackScreen.url,
+        pageTitle: fallbackScreen.pageTitle,
+        observation: [
+          `The intended browser step was blocked: ${summarizeBrowserFailure(actionMessage)}`,
+          'Fallback evidence was captured from the current visible page instead.',
+          extractAttemptObservation(fallbackScreen.extractedContent),
+        ].join(' '),
+      };
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Objective failed unexpectedly.';
 
@@ -337,7 +367,8 @@ async function captureScreen({
 
 function createObjectivePlans(
   selectedTestIds: ValidationTestId[],
-  structuredIntake?: StructuredIntakeContext
+  structuredIntake?: StructuredIntakeContext,
+  persona?: Persona
 ): ObjectivePlan[] {
   const onboardingHint =
     structuredIntake?.keyFlowsOrJobs[0] || structuredIntake?.onboardingConcerns[0] || '';
@@ -345,6 +376,8 @@ function createObjectivePlans(
     structuredIntake?.engagementConcerns[0] || structuredIntake?.keyFlowsOrJobs[0] || '';
   const accessibilityHint = structuredIntake?.accessibilityConcerns[0] || '';
   const complianceHint = structuredIntake?.complianceConcerns[0] || '';
+  const personaActionLens = buildPersonaActionLens(persona);
+  const personaExtractionLens = buildPersonaExtractionLens(persona);
 
   return selectedTestIds.map((testId) => {
     const label =
@@ -360,12 +393,12 @@ function createObjectivePlans(
           observationFocus:
             'Signup routes, onboarding copy, getting-started cues, first-task setup, and activation friction.',
           observeInstruction:
-            'Find visible entry points for new users such as Sign Up, Get Started, Start Trial, Create Account, Getting Started, onboarding, or setup links.',
+            `Find visible entry points for new users such as Sign Up, Get Started, Start Trial, Create Account, Getting Started, onboarding, or setup links. ${personaActionLens}`,
           actionInstruction: onboardingHint
-            ? `Open the most relevant new-user onboarding or signup path, especially the one that appears closest to "${onboardingHint}".`
-            : 'Open the most relevant new-user onboarding or signup path, preferring flows that start account creation, getting started, or setup.',
+            ? `Open the most relevant new-user onboarding or signup path, especially the one that appears closest to "${onboardingHint}". ${personaActionLens}`
+            : `Open the most relevant new-user onboarding or signup path, preferring flows that start account creation, getting started, or setup. ${personaActionLens}`,
           extractInstruction:
-            'Extract visible onboarding evidence: headings, helper text, form fields, setup steps, progress indicators, first-task guidance, activation cues, and obvious friction points.',
+            `Extract visible onboarding evidence: headings, helper text, form fields, setup steps, progress indicators, first-task guidance, activation cues, and obvious friction points. ${personaExtractionLens}`,
         };
       case 'engagement-habit-formation':
         return {
@@ -376,12 +409,12 @@ function createObjectivePlans(
           observationFocus:
             'Repeat-use hooks, dashboards, progress, saved state, reminders, rewards, history, and return incentives.',
           observeInstruction:
-            'Find visible elements related to ongoing value such as Features, Product, Dashboard, Progress, Templates, Analytics, History, Notifications, reminders, streaks, rewards, or saved work.',
+            `Find visible elements related to ongoing value such as Features, Product, Dashboard, Progress, Templates, Analytics, History, Notifications, reminders, streaks, rewards, or saved work. ${personaActionLens}`,
           actionInstruction: engagementHint
-            ? `Open the page or section most likely to explain recurring value or return incentives, especially anything connected to "${engagementHint}".`
-            : 'Open the page or section most likely to explain recurring value, progress tracking, reminders, saved work, history, or reasons for a user to return.',
+            ? `Open the page or section most likely to explain recurring value or return incentives, especially anything connected to "${engagementHint}". ${personaActionLens}`
+            : `Open the page or section most likely to explain recurring value, progress tracking, reminders, saved work, history, or reasons for a user to return. ${personaActionLens}`,
           extractInstruction:
-            'Extract visible evidence of habit formation or engagement design, including dashboards, progress, saved items, reminders, recurring workflows, status, rewards, and any return incentive copy.',
+            `Extract visible evidence of habit formation or engagement design, including dashboards, progress, saved items, reminders, recurring workflows, status, rewards, and any return incentive copy. ${personaExtractionLens}`,
         };
       case 'accessibility':
         return {
@@ -392,12 +425,12 @@ function createObjectivePlans(
           observationFocus:
             'Form labels, readable copy, navigation clarity, keyboard/focus clues, and visible validation or error states.',
           observeInstruction:
-            'Find visible forms, menus, dialogs, navigation elements, labels, validation states, or interactive controls that would reveal accessibility clues.',
+            `Find visible forms, menus, dialogs, navigation elements, labels, validation states, or interactive controls that would reveal accessibility clues. ${personaActionLens}`,
           actionInstruction: accessibilityHint
-            ? `Open the clearest form or navigation area that could reveal accessibility clues, especially around "${accessibilityHint}".`
-            : 'Open the clearest form, signup step, or navigation area that could reveal accessibility clues such as labels, instructions, errors, and navigation structure.',
+            ? `Open the clearest form or navigation area that could reveal accessibility clues, especially around "${accessibilityHint}". ${personaActionLens}`
+            : `Open the clearest form, signup step, or navigation area that could reveal accessibility clues such as labels, instructions, errors, and navigation structure. ${personaActionLens}`,
           extractInstruction:
-            'Extract visible accessibility evidence: form labels, placeholder-only fields, instructions, contrast/readability clues, navigation labels, validation messages, error states, and any focus or keyboard guidance that is visible.',
+            `Extract visible accessibility evidence: form labels, placeholder-only fields, instructions, contrast/readability clues, navigation labels, validation messages, error states, and any focus or keyboard guidance that is visible. ${personaExtractionLens}`,
         };
       case 'compliance':
         return {
@@ -408,12 +441,12 @@ function createObjectivePlans(
           observationFocus:
             'Privacy policy, terms, cookie banners, consent language, permission requests, security/compliance claims, and data-use disclosures.',
           observeInstruction:
-            'Find cookie banners, privacy policy links, terms links, security/compliance pages, consent messaging, permission requests, or data-use disclosures.',
+            `Find cookie banners, privacy policy links, terms links, security/compliance pages, consent messaging, permission requests, or data-use disclosures. ${personaActionLens}`,
           actionInstruction: complianceHint
-            ? `Open the most relevant privacy, policy, consent, or compliance page, especially anything related to "${complianceHint}".`
-            : 'Open the most relevant privacy, policy, consent, or compliance page that is visible, preferring privacy policy, terms, security, or cookie-related routes.',
+            ? `Open the most relevant privacy, policy, consent, or compliance page, especially anything related to "${complianceHint}". ${personaActionLens}`
+            : `Open the most relevant privacy, policy, consent, or compliance page that is visible, preferring privacy policy, terms, security, or cookie-related routes. ${personaActionLens}`,
           extractInstruction:
-            'Extract visible compliance evidence: privacy or terms copy, cookie or consent messaging, security and compliance claims, permission requests, disclaimers, policy links, and any explanation of data use.',
+            `Extract visible compliance evidence: privacy or terms copy, cookie or consent messaging, security and compliance claims, permission requests, disclaimers, policy links, and any explanation of data use. ${personaExtractionLens}`,
         };
       default:
         return {
@@ -422,11 +455,11 @@ function createObjectivePlans(
           goal: 'Inspect the most relevant product surface for this selected test.',
           observationFocus: 'Relevant evidence tied to the selected validation goal.',
           observeInstruction:
-            'Find the most relevant visible page element, route, or entry point connected to the selected validation goal.',
+            `Find the most relevant visible page element, route, or entry point connected to the selected validation goal. ${personaActionLens}`,
           actionInstruction:
-            'Open the page or section most relevant to the selected validation goal.',
+            `Open the page or section most relevant to the selected validation goal. ${personaActionLens}`,
           extractInstruction:
-            'Extract the visible evidence most relevant to this selected validation goal.',
+            `Extract the visible evidence most relevant to this selected validation goal. ${personaExtractionLens}`,
         };
     }
   });
@@ -505,4 +538,55 @@ function extractAttemptObservation(extractedContent: string) {
     .slice(0, 220);
 
   return condensed || 'The browser reached the page but did not extract meaningful visible text.';
+}
+
+function buildPersonaActionLens(persona?: Persona) {
+  if (!persona) {
+    return '';
+  }
+
+  const topGoal = persona.goals[0];
+  const topFriction = persona.frustrations[0];
+  const techHint =
+    persona.techSavviness <= 2
+      ? 'They are likely to prefer the simplest, most guided path.'
+      : persona.techSavviness >= 4
+        ? 'They can tolerate slightly denser flows, but still notice unnecessary friction.'
+        : 'They expect a clear and dependable mainstream workflow.';
+
+  return [
+    `Use ${persona.name}'s lens as a ${persona.jobTitle}.`,
+    topGoal ? `Prioritize what helps them achieve "${topGoal}".` : '',
+    topFriction ? `Watch closely for anything that triggers "${topFriction}".` : '',
+    techHint,
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function buildPersonaExtractionLens(persona?: Persona) {
+  if (!persona) {
+    return '';
+  }
+
+  const signupTrigger = persona.signupTriggers[0];
+  const bounceTrigger = persona.bounceTriggers[0];
+
+  return [
+    `Extract the details that would matter most to ${persona.name}.`,
+    signupTrigger ? `Highlight anything that supports "${signupTrigger}".` : '',
+    bounceTrigger ? `Highlight anything that could cause them to leave because of "${bounceTrigger}".` : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+function summarizeBrowserFailure(message: string) {
+  const compact = message.replace(/\s+/g, ' ').trim();
+
+  if (/shadow dom/i.test(compact)) {
+    return 'A key interaction was inside a shadow DOM, so the browser could not complete that step directly.';
+  }
+
+  return compact.slice(0, 220);
 }

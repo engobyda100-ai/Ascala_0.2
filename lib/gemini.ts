@@ -8,9 +8,14 @@ import {
   BrowserExplorationSummary,
   ChatAgentRequest,
   ChatAgentResponse,
+  GeneratedPersona,
   InputMode,
   Persona,
   ReviewAttachedFileMetadata,
+  ResultActionPriority,
+  ResultActionableChange,
+  ResultNarrativeBlocks,
+  ResultQuotes,
   ScreenCapture,
   StructuredIntakeContext,
   StructuredIntakeUpdate,
@@ -24,15 +29,20 @@ import {
 } from './types';
 import {
   PERSONA_PROMPT,
+  PERSONA_SET_PROMPT,
   ANALYSIS_PROMPT,
   INTAKE_CHAT_PROMPT,
 } from './prompts';
+
+const ACTIONABLE_CHANGE_PRIORITIES = ['urgent', 'important', 'later'] as const;
+const INSIGHT_ORDINAL_LABELS = ['first', 'second', 'third'] as const;
 
 interface ReviewContextOptions {
   attachedFiles?: ReviewAttachedFileMetadata[];
   browserExplorationSummary?: BrowserExplorationSummary;
   inputMode?: InputMode;
   intakeSummary?: string;
+  personaCount?: number;
   productContext?: string;
   structuredIntake?: StructuredIntakeContext;
   selectedTestIds?: ValidationTestId[];
@@ -90,19 +100,7 @@ export async function generatePersona(
       safetySettings,
     });
 
-    const prompt = PERSONA_PROMPT
-      .replace('{{TARGET_MARKET}}', targetMarket)
-      .replace('{{PRODUCT_CONTEXT}}', formatOptionalText(options.productContext))
-      .replace('{{STRUCTURED_INTAKE}}', formatStructuredIntake(options.structuredIntake))
-      .replace('{{INTAKE_SUMMARY}}', formatOptionalText(options.intakeSummary))
-      .replace('{{SELECTED_TESTS}}', formatSelectedTests(options.selectedTestIds))
-      .replace('{{ATTACHED_FILES}}', formatAttachedFiles(options.attachedFiles))
-      .replace('{{INPUT_MODE}}', formatInputMode(options.inputMode))
-      .replace('{{PERSONA_CONTEXT}}', formatPersonaContext(options.inputMode))
-      .replace(
-        '{{ATTACHED_FILE_CONTEXT}}',
-        formatAttachedFileContext(options.attachedFiles)
-      );
+    const prompt = buildPersonaPrompt(PERSONA_PROMPT, targetMarket, options);
     const result = await model.generateContent(prompt);
     const response = result.response;
     const text = response.text();
@@ -130,6 +128,59 @@ export async function generatePersona(
       inputMode: options.inputMode || 'url',
     });
     return createFallbackPersona(options.inputMode);
+  }
+}
+
+export async function generatePersonas(
+  targetMarket: string,
+  options: ReviewContextOptions = {}
+): Promise<GeneratedPersona[]> {
+  const personaCount = normalizePersonaCount(options.personaCount);
+
+  try {
+    const genAI = getGenAI();
+
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      generationConfig: {
+        temperature: 0.8,
+        maxOutputTokens: 8192,
+        responseMimeType: 'application/json',
+      },
+      safetySettings,
+    });
+
+    const prompt = buildPersonaPrompt(PERSONA_SET_PROMPT, targetMarket, options);
+    const result = await model.generateContent(prompt);
+    const response = result.response;
+    const text = response.text();
+
+    if (!text) {
+      console.warn('Persona set generation returned an empty response. Using fallback personas.', {
+        inputMode: options.inputMode || 'url',
+        personaCount,
+      });
+      return createFallbackGeneratedPersonas(options.inputMode, personaCount);
+    }
+
+    return parseGeneratedPersonasResponse(text, options.inputMode, personaCount);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+
+    if (
+      message.includes('API key') ||
+      message.includes('GEMINI') ||
+      message.includes('Gemini API key')
+    ) {
+      throw new Error(`Gemini API error: ${message}`);
+    }
+
+    console.error('Persona set generation failed. Falling back to default personas.', {
+      error,
+      inputMode: options.inputMode || 'url',
+      personaCount,
+    });
+    return createFallbackGeneratedPersonas(options.inputMode, personaCount);
   }
 }
 
@@ -207,7 +258,8 @@ export async function analyzeApp(
 
     return normalizeAnalysisResult(
       JSON.parse(text) as UXAnalysis,
-      options.selectedTestIds
+      options.selectedTestIds,
+      options.browserExplorationSummary
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
@@ -253,6 +305,7 @@ export async function generateIntakeCoachResponse(
         '{{STRUCTURED_INTAKE}}',
         formatStructuredIntake(request.structuredIntake)
       )
+      .replace('{{SELECTED_PERSONA}}', formatSelectedPersona(request.selectedPersona))
       .replace(
         '{{LATEST_RESULTS_SUMMARY}}',
         formatLatestResultsSummary(request.latestResultsSummary)
@@ -298,6 +351,26 @@ export async function generateIntakeCoachResponse(
 
     throw new Error(`Intake chat failed: ${message}`);
   }
+}
+
+function buildPersonaPrompt(
+  template: string,
+  targetMarket: string,
+  options: ReviewContextOptions
+) {
+  return template
+    .replace('{{TARGET_MARKET}}', targetMarket)
+    .replace('{{PERSONA_COUNT}}', String(normalizePersonaCount(options.personaCount)))
+    .replace('{{PRODUCT_CONTEXT}}', formatOptionalText(options.productContext))
+    .replace('{{STRUCTURED_INTAKE}}', formatStructuredIntake(options.structuredIntake))
+    .replace('{{INTAKE_SUMMARY}}', formatOptionalText(options.intakeSummary))
+    .replace('{{ATTACHED_FILES}}', formatAttachedFiles(options.attachedFiles))
+    .replace('{{INPUT_MODE}}', formatInputMode(options.inputMode))
+    .replace('{{PERSONA_CONTEXT}}', formatPersonaContext(options.inputMode))
+    .replace(
+      '{{ATTACHED_FILE_CONTEXT}}',
+      formatAttachedFileContext(options.attachedFiles)
+    );
 }
 
 function formatOptionalText(value?: string) {
@@ -377,16 +450,6 @@ function formatLatestResultsSummary(
   return [
     `Overall score: ${latestResultsSummary.overallScore}/100`,
     `Summary: ${latestResultsSummary.summary}`,
-    latestResultsSummary.topFindings.length > 0
-      ? `Top findings:\n- ${latestResultsSummary.topFindings
-          .map((item) => `${item.title}: ${item.detail}`)
-          .join('\n- ')}`
-      : '',
-    latestResultsSummary.topRecommendations.length > 0
-      ? `Top recommendations:\n- ${latestResultsSummary.topRecommendations
-          .map((item) => `${item.title}: ${item.detail}`)
-          .join('\n- ')}`
-      : '',
   ]
     .filter(Boolean)
     .join('\n');
@@ -395,6 +458,29 @@ function formatLatestResultsSummary(
 function formatStructuredField(label: string, value?: string) {
   const trimmed = value?.trim();
   return trimmed ? `${label}: ${trimmed}` : '';
+}
+
+function formatSelectedPersona(selectedPersona?: GeneratedPersona | null) {
+  if (!selectedPersona) {
+    return 'No selected persona is active.';
+  }
+
+  return [
+    `Name: ${selectedPersona.name}`,
+    selectedPersona.description ? `Description: ${selectedPersona.description}` : '',
+    `Role: ${selectedPersona.jobTitle}`,
+    `Company size: ${selectedPersona.companySize}`,
+    `Tech savviness: ${selectedPersona.techSavviness}/5`,
+    selectedPersona.goals.length > 0
+      ? `Goals:\n- ${selectedPersona.goals.join('\n- ')}`
+      : '',
+    selectedPersona.frustrations.length > 0
+      ? `Frustrations:\n- ${selectedPersona.frustrations.join('\n- ')}`
+      : '',
+    selectedPersona.quote ? `Mindset quote: ${selectedPersona.quote}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 function formatBrowserExplorationSummary(
@@ -431,27 +517,29 @@ function formatSelectedTestResults(
 
   return selectedTestResults
     .map((test) => {
-      const findings = test.keyFindings.length
-        ? `Findings: ${test.keyFindings.join(' | ')}`
-        : 'Findings: none yet';
-      const recommendations = test.recommendations.length
-        ? `Recommendations: ${test.recommendations.join(' | ')}`
-        : 'Recommendations: none yet';
-      const wentWell = test.wentWell.length
-        ? `Went well: ${test.wentWell.join(' | ')}`
-        : 'Went well: none yet';
-      const needsChange = test.needsChange.length
-        ? `Needs change: ${test.needsChange.join(' | ')}`
-        : 'Needs change: none yet';
-      const shouldEliminate = test.shouldEliminate.length
-        ? `Should eliminate: ${test.shouldEliminate.join(' | ')}`
-        : 'Should eliminate: none yet';
-
       return `${test.label} (${test.id}) [${test.status}] ${
         typeof test.score === 'number' ? `${test.score}/100` : 'pending'
-      }\nSummary: ${test.summary}\n${findings}\n${recommendations}\n${wentWell}\n${needsChange}\n${shouldEliminate}`;
+      }\nSummary: ${test.summary}\n${formatNarrativeBlocks(test)}`;
     })
     .join('\n\n');
+}
+
+function formatNarrativeBlocks(
+  narrative: Pick<ResultNarrativeBlocks, 'quotes' | 'actionableChanges' | 'keyInsights'>
+) {
+  const actionableChanges = narrative.actionableChanges
+    .map((change) => `${capitalizePriority(change.priority)}: ${change.text}`)
+    .join('\n- ');
+  const keyInsights = narrative.keyInsights.join('\n- ');
+
+  return [
+    `Positive quote: ${narrative.quotes.positive}`,
+    `Negative quote: ${narrative.quotes.negative}`,
+    actionableChanges ? `Actionable changes:\n- ${actionableChanges}` : '',
+    keyInsights ? `Key insights:\n- ${keyInsights}` : '',
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 function formatRunStatus(runState?: WorkspaceRunState) {
@@ -594,9 +682,43 @@ function parsePersonaResponse(rawText: string, inputMode?: InputMode): Persona {
   }
 }
 
-function normalizePersona(persona: Partial<Persona>, inputMode?: InputMode): Persona {
-  const fallback = createFallbackPersona(inputMode);
+function parseGeneratedPersonasResponse(
+  rawText: string,
+  inputMode?: InputMode,
+  personaCount = 3
+): GeneratedPersona[] {
+  console.log('Raw Gemini persona set response:', rawText);
 
+  try {
+    const parsed = JSON.parse(rawText) as
+      | { personas?: Partial<Persona>[] }
+      | Partial<Persona>[];
+    const personaCandidates = Array.isArray(parsed)
+      ? parsed
+      : Array.isArray(parsed.personas)
+        ? parsed.personas
+        : [];
+
+    return normalizeGeneratedPersonas(personaCandidates, inputMode, personaCount);
+  } catch (error) {
+    console.error('Persona set JSON parse failed. Using fallback personas.', {
+      error,
+      rawResponse: rawText,
+      inputMode: inputMode || 'url',
+      personaCount,
+    });
+    return createFallbackGeneratedPersonas(inputMode, personaCount);
+  }
+}
+
+function normalizePersona(persona: Partial<Persona>, inputMode?: InputMode): Persona {
+  return normalizePersonaWithFallback(persona, createFallbackPersona(inputMode));
+}
+
+function normalizePersonaWithFallback(
+  persona: Partial<Persona>,
+  fallback: Persona
+): Persona {
   return {
     name: persona.name?.trim() || fallback.name,
     description: persona.description?.trim() || fallback.description,
@@ -616,6 +738,29 @@ function normalizePersona(persona: Partial<Persona>, inputMode?: InputMode): Per
     signupTriggers: normalizePersonaList(persona.signupTriggers, fallback.signupTriggers),
     bounceTriggers: normalizePersonaList(persona.bounceTriggers, fallback.bounceTriggers),
   };
+}
+
+function normalizeGeneratedPersonas(
+  personas: Partial<Persona>[],
+  inputMode?: InputMode,
+  personaCount = 3
+): GeneratedPersona[] {
+  const normalizedPersonaCount = normalizePersonaCount(personaCount);
+  const fallbackPersonas = createFallbackGeneratedPersonas(
+    inputMode,
+    normalizedPersonaCount
+  );
+  const normalized = personas
+    .slice(0, normalizedPersonaCount)
+    .map((persona, index) =>
+      normalizePersonaWithFallback(persona, fallbackPersonas[index] || fallbackPersonas[0])
+    );
+
+  while (normalized.length < normalizedPersonaCount) {
+    normalized.push(fallbackPersonas[normalized.length] || fallbackPersonas[0]);
+  }
+
+  return assignPersonaIds(normalized.slice(0, normalizedPersonaCount));
 }
 
 function normalizePersonaList(items: string[] | undefined, fallback: string[]) {
@@ -648,6 +793,194 @@ function createFallbackPersona(inputMode?: InputMode): Persona {
   };
 }
 
+function createFallbackGeneratedPersonas(
+  inputMode?: InputMode,
+  personaCount = 3
+): GeneratedPersona[] {
+  const descriptionByMode =
+    inputMode === 'screenshots'
+      ? 'Evaluating the product from static screen evidence and looking for clear next steps.'
+      : inputMode === 'video'
+        ? 'Evaluating the product from sampled frames and trying to reconstruct the likely journey.'
+        : inputMode === 'figma'
+          ? 'Evaluating an early prototype and noticing where the flow still feels unfinished.'
+          : 'Evaluating the live product and deciding whether it feels usable and trustworthy.';
+
+  const fallbackPersonas: Persona[] = [
+    {
+      name: 'Maya Chen',
+      description: descriptionByMode,
+      age: 32,
+      jobTitle: 'Growth Lead',
+      companySize: '11-50 employees',
+      goals: ['Understand the product quickly', 'Reach first value without friction', 'Decide if the workflow is launch-ready'],
+      frustrations: ['Unclear onboarding path', 'Too many steps before value', 'Weak signals of momentum'],
+      techSavviness: 4,
+      quote: 'If the first few moments feel muddy, I stop trusting the rest of the flow.',
+      signupTriggers: ['Clear first action', 'Evidence of fast payoff', 'Low-friction setup'],
+      bounceTriggers: ['Confusing copy', 'Hidden next step', 'Overly slow setup'],
+    },
+    {
+      name: 'Jordan Rivera',
+      description: descriptionByMode,
+      age: 41,
+      jobTitle: 'Operations Manager',
+      companySize: '51-200 employees',
+      goals: ['Check whether the product feels dependable', 'Confirm risky flows are understandable', 'Avoid errors that create support issues'],
+      frustrations: ['Missing trust cues', 'Weak error prevention', 'Anything that feels brittle under pressure'],
+      techSavviness: 3,
+      quote: 'I need to feel like the product will hold up when the stakes are real.',
+      signupTriggers: ['Trustworthy language', 'Clear expectations', 'Visible safeguards'],
+      bounceTriggers: ['Risky-looking flows', 'Poor instructions', 'Unclear recovery from mistakes'],
+    },
+    {
+      name: 'Amira Patel',
+      description: descriptionByMode,
+      age: 28,
+      jobTitle: 'Product Designer',
+      companySize: '2-10 employees',
+      goals: ['Judge clarity of the interface', 'Spot copy and interaction friction quickly', 'See whether the experience feels coherent end to end'],
+      frustrations: ['Inconsistent interaction patterns', 'Ambiguous interface labels', 'Missing guidance at key moments'],
+      techSavviness: 5,
+      quote: 'When the interface makes me stop and translate what it means, the experience is already losing me.',
+      signupTriggers: ['Clear hierarchy', 'Confident wording', 'Visible flow logic'],
+      bounceTriggers: ['Ambiguous controls', 'Broken momentum', 'Unexplained UI states'],
+    },
+    {
+      name: 'Elena Brooks',
+      description: descriptionByMode,
+      age: 36,
+      jobTitle: 'Customer Success Director',
+      companySize: '201-500 employees',
+      goals: ['Evaluate how quickly new users can succeed', 'Reduce support-heavy friction', 'Find where guidance breaks down'],
+      frustrations: ['Too much hidden setup work', 'Missing onboarding cues', 'Confusing error states'],
+      techSavviness: 4,
+      quote: 'If I can already imagine the support tickets, the product is not ready.',
+      signupTriggers: ['Guided setup', 'Clear reassurance', 'Visible progress indicators'],
+      bounceTriggers: ['Dead-end flows', 'Missing help', 'Hard-to-recover mistakes'],
+    },
+    {
+      name: 'Noah Fischer',
+      description: descriptionByMode,
+      age: 30,
+      jobTitle: 'Founder',
+      companySize: '1-10 employees',
+      goals: ['Validate the core value quickly', 'See momentum immediately', 'Avoid wasting time on slow setup'],
+      frustrations: ['Slow time to value', 'Generic messaging', 'Too many screens before payoff'],
+      techSavviness: 5,
+      quote: 'I need a reason to care in the first minute or I am already half gone.',
+      signupTriggers: ['Instant clarity', 'Fast activation', 'Evidence that the product saves time'],
+      bounceTriggers: ['Abstract copy', 'Delayed payoff', 'Bloated first-run experience'],
+    },
+    {
+      name: 'Priya Nair',
+      description: descriptionByMode,
+      age: 39,
+      jobTitle: 'Compliance Lead',
+      companySize: '501-1000 employees',
+      goals: ['Check whether risky actions are explained well', 'Confirm safeguards are visible', 'Avoid ambiguous flows that create policy problems'],
+      frustrations: ['Missing disclosures', 'Weak permission language', 'Unclear auditability'],
+      techSavviness: 3,
+      quote: 'If the system asks me to trust it without proof, I slow down immediately.',
+      signupTriggers: ['Transparent rules', 'Trustworthy controls', 'Clear accountability'],
+      bounceTriggers: ['Hidden consequences', 'Ambiguous approvals', 'Missing policy cues'],
+    },
+    {
+      name: 'Leo Martinez',
+      description: descriptionByMode,
+      age: 27,
+      jobTitle: 'Sales Manager',
+      companySize: '51-200 employees',
+      goals: ['Move through the flow fast', 'Find the fastest path to value', 'Judge whether the product feels polished enough to demo'],
+      frustrations: ['Slow navigation', 'Confusing labels', 'Anything that interrupts momentum'],
+      techSavviness: 4,
+      quote: 'Every extra click feels like resistance I will have to explain later.',
+      signupTriggers: ['Fast path forward', 'Strong demo readiness', 'Clear momentum'],
+      bounceTriggers: ['Hidden actions', 'Laggy-feeling flow', 'Uncertain next steps'],
+    },
+    {
+      name: 'Grace Okafor',
+      description: descriptionByMode,
+      age: 44,
+      jobTitle: 'IT Administrator',
+      companySize: '1000+ employees',
+      goals: ['Assess operational reliability', 'Check role and setup clarity', 'Understand how safely the product fits an existing stack'],
+      frustrations: ['Vague setup requirements', 'Unclear permissions', 'Unpredictable system behavior'],
+      techSavviness: 4,
+      quote: 'I need confidence that this product behaves predictably before I let anyone rely on it.',
+      signupTriggers: ['Clear setup rules', 'Visible safeguards', 'Operational clarity'],
+      bounceTriggers: ['Loose configuration language', 'Unclear control boundaries', 'Fragile-looking workflows'],
+    },
+    {
+      name: 'Sofia Ramirez',
+      description: descriptionByMode,
+      age: 33,
+      jobTitle: 'Marketing Operations Lead',
+      companySize: '201-500 employees',
+      goals: ['Understand how the product fits a daily workflow', 'Judge whether the UX feels teachable', 'Spot places where teams would hesitate'],
+      frustrations: ['Disconnected flow logic', 'Weak hierarchy', 'Missing handoff cues'],
+      techSavviness: 4,
+      quote: 'If I cannot picture how my team would adopt this, the experience is still too fuzzy.',
+      signupTriggers: ['Workflow clarity', 'Confident copy', 'Easy handoff moments'],
+      bounceTriggers: ['Scattered flow', 'Too many mental jumps', 'Weak role fit'],
+    },
+    {
+      name: 'Ethan Walker',
+      description: descriptionByMode,
+      age: 35,
+      jobTitle: 'Accessibility Advocate',
+      companySize: '11-50 employees',
+      goals: ['Notice where clarity breaks down', 'Check whether the interface feels inclusive', 'Find interaction patterns that create avoidable friction'],
+      frustrations: ['Weak accessibility cues', 'Poor contrast or labeling', 'Interaction patterns that assume too much'],
+      techSavviness: 5,
+      quote: 'If the interface only works for the happy path, it is not really working.',
+      signupTriggers: ['Inclusive design signals', 'Readable structure', 'Clear interaction affordances'],
+      bounceTriggers: ['Ambiguous labels', 'Low accessibility confidence', 'Needless complexity'],
+    },
+  ];
+
+  return assignPersonaIds(
+    fallbackPersonas.slice(0, normalizePersonaCount(personaCount))
+  );
+}
+
+function normalizePersonaCount(personaCount?: number) {
+  if (typeof personaCount !== 'number' || !Number.isFinite(personaCount)) {
+    return 3;
+  }
+
+  return Math.max(3, Math.min(10, Math.round(personaCount)));
+}
+
+function assignPersonaIds(personas: Persona[]): GeneratedPersona[] {
+  const usedIds = new Set<string>();
+
+  return personas.map((persona, index) => {
+    const baseId = slugifyPersonaName(persona.name) || `persona-${index + 1}`;
+    let id = baseId;
+    let suffix = 2;
+
+    while (usedIds.has(id)) {
+      id = `${baseId}-${suffix}`;
+      suffix += 1;
+    }
+
+    usedIds.add(id);
+
+    return {
+      ...persona,
+      id,
+    };
+  });
+}
+
+function slugifyPersonaName(name: string) {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
 function normalizeChatAgentResponse(response: ChatAgentResponse): ChatAgentResponse {
   return {
     assistantMessage:
@@ -664,20 +997,23 @@ function normalizeChatAgentResponse(response: ChatAgentResponse): ChatAgentRespo
 
 function normalizeAnalysisResult(
   analysis: UXAnalysis,
-  selectedTestIds?: ValidationTestId[]
+  selectedTestIds?: ValidationTestId[],
+  browserExplorationSummary?: BrowserExplorationSummary
 ): UXAnalysis {
   return {
     ...analysis,
     selectedTestResults: normalizeSelectedTestResults(
       analysis.selectedTestResults,
-      selectedTestIds
+      selectedTestIds,
+      browserExplorationSummary
     ),
   };
 }
 
 function normalizeSelectedTestResults(
   selectedTestResults: ValidationTestResult[] | undefined,
-  selectedTestIds?: ValidationTestId[]
+  selectedTestIds?: ValidationTestId[],
+  browserExplorationSummary?: BrowserExplorationSummary
 ): ValidationTestResult[] {
   if (!selectedTestIds || selectedTestIds.length === 0) {
     return [];
@@ -690,6 +1026,11 @@ function normalizeSelectedTestResults(
   return selectedTestIds.map((id) => {
     const catalogItem = VALIDATION_TEST_CATALOG.find((test) => test.id === id);
     const result = resultsById.get(id);
+    const fallback = buildMissingTestResultFallback({
+      browserExplorationSummary,
+      label: catalogItem?.label || id,
+      testId: id,
+    });
 
     return {
       id,
@@ -697,7 +1038,19 @@ function normalizeSelectedTestResults(
       score: clampScore(result?.score),
       summary:
         result?.summary?.trim() ||
-        `No explicit ${catalogItem?.label.toLowerCase() || id} summary was returned.`,
+        fallback.summary,
+      quotes: normalizeResultQuotes(
+        result?.quotes || fallback.quotes,
+        `${catalogItem?.label.toLowerCase() || id} test`
+      ),
+      actionableChanges: normalizeActionableChanges(
+        result?.actionableChanges || fallback.actionableChanges,
+        `${catalogItem?.label.toLowerCase() || id} test`
+      ),
+      keyInsights: normalizeNarrativeInsights(
+        result?.keyInsights || fallback.keyInsights,
+        `${catalogItem?.label.toLowerCase() || id} test`
+      ),
       keyFindings: normalizeStringList(result?.keyFindings),
       recommendations: normalizeStringList(result?.recommendations),
       wentWell: normalizeStringList(result?.wentWell),
@@ -709,6 +1062,159 @@ function normalizeSelectedTestResults(
 
 function normalizeStringList(items: string[] | undefined) {
   return (items || []).map((item) => item.trim()).filter(Boolean).slice(0, 3);
+}
+
+function normalizeResultQuotes(
+  quotes: ResultQuotes | undefined,
+  contextLabel: string
+): ResultQuotes {
+  return {
+    positive:
+      quotes?.positive?.trim() ||
+      `I found at least one part of this ${contextLabel} that felt promising.`,
+    negative:
+      quotes?.negative?.trim() ||
+      `I still hit a frustrating moment in this ${contextLabel} that needs attention.`,
+  };
+}
+
+function normalizeActionableChanges(
+  actionableChanges: ResultActionableChange[] | undefined,
+  contextLabel: string
+): ResultActionableChange[] {
+  const normalizedByPriority = new Map<ResultActionPriority, string>();
+
+  (actionableChanges || []).forEach((change) => {
+    const priority = change?.priority;
+    const text = change?.text?.trim();
+
+    if (
+      priority &&
+      ACTIONABLE_CHANGE_PRIORITIES.includes(priority) &&
+      text &&
+      !normalizedByPriority.has(priority)
+    ) {
+      normalizedByPriority.set(priority, text);
+    }
+  });
+
+  return ACTIONABLE_CHANGE_PRIORITIES.map((priority) => ({
+    priority,
+    text:
+      normalizedByPriority.get(priority) ||
+      buildActionableChangeFallback(priority, contextLabel),
+  }));
+}
+
+function normalizeNarrativeInsights(
+  keyInsights: string[] | undefined,
+  contextLabel: string
+) {
+  const normalized = normalizeStringList(keyInsights);
+
+  while (normalized.length < 3) {
+    normalized.push(
+      `A clearer ${INSIGHT_ORDINAL_LABELS[normalized.length]} insight was not returned for this ${contextLabel}.`
+    );
+  }
+
+  return normalized.slice(0, 3);
+}
+
+function buildActionableChangeFallback(
+  priority: ResultActionPriority,
+  contextLabel: string
+) {
+  switch (priority) {
+    case 'urgent':
+      return `Clarify the biggest blocker in this ${contextLabel} immediately.`;
+    case 'important':
+      return `Refine the next most important friction point in this ${contextLabel}.`;
+    case 'later':
+      return `Polish the lower-priority rough edges in this ${contextLabel} after the core fix lands.`;
+    default:
+      return `Refine this ${contextLabel} based on the strongest persona signal.`;
+  }
+}
+
+function capitalizePriority(priority: ResultActionPriority) {
+  return priority.charAt(0).toUpperCase() + priority.slice(1);
+}
+
+function buildMissingTestResultFallback({
+  browserExplorationSummary,
+  label,
+  testId,
+}: {
+  browserExplorationSummary?: BrowserExplorationSummary;
+  label: string;
+  testId: ValidationTestId;
+}) {
+  const attempt = browserExplorationSummary?.attempts.find(
+    (entry) => entry.testId === testId
+  );
+  const objective = browserExplorationSummary?.objectives.find(
+    (entry) => entry.testId === testId
+  );
+  const lowerLabel = label.toLowerCase();
+  const observation = attempt?.observation?.trim();
+  const focus = objective?.observationFocus?.trim();
+  const shadowDomBlocked = /shadow dom/i.test(observation || '');
+
+  const summary =
+    attempt?.status === 'attempted'
+      ? `The automated ${lowerLabel} review hit an interaction blocker, so this test is using fallback evidence from the visible screen instead. ${observation || ''}`.trim()
+      : attempt?.status === 'failed'
+        ? `The automated ${lowerLabel} review failed before structured evidence could be gathered. ${observation || ''}`.trim()
+        : attempt?.status === 'not_found'
+          ? `No obvious ${lowerLabel} surface was found during browser exploration, so this test is relying on the broader visible screens that were captured.`
+          : `No explicit ${lowerLabel} summary was returned, so this test is relying on the captured evidence that was available.`;
+
+  return {
+    summary,
+    quotes: {
+      positive:
+        attempt?.status === 'attempted' || attempt?.status === 'completed'
+          ? `I could still judge some visible ${lowerLabel} cues from the screen that was captured.`
+          : `I could still infer a few visible ${lowerLabel} cues from the broader experience.`,
+      negative: shadowDomBlocked
+        ? `I got blocked when an important ${lowerLabel} interaction lived inside a shadow DOM.`
+        : attempt?.status === 'not_found'
+          ? `I couldn't find an obvious ${lowerLabel} path to inspect in the product.`
+          : `I still ran into a frustrating gap while trying to evaluate this ${lowerLabel} flow.`,
+    },
+    actionableChanges: [
+      {
+        priority: 'urgent' as const,
+        text: shadowDomBlocked
+          ? `Expose the key ${lowerLabel} interaction outside the shadow DOM or provide a stable trigger so the flow can be reached reliably.`
+          : `Make the primary ${lowerLabel} path easier to reach and evaluate from the main product surface.`,
+      },
+      {
+        priority: 'important' as const,
+        text: focus
+          ? `Strengthen the visible ${focus.toLowerCase()} so the review surface is clearer even before deeper interaction.`
+          : `Clarify the visible labels, instructions, and states tied to this ${lowerLabel} flow.`,
+      },
+      {
+        priority: 'later' as const,
+        text: `Add stronger instrumentation or review-friendly cues so future ${lowerLabel} checks can verify this flow faster.`,
+      },
+    ],
+    keyInsights: [
+      attempt?.status === 'attempted'
+        ? `The intended ${lowerLabel} interaction was only partially reachable, so the report is based on fallback evidence from the visible page.`
+        : attempt?.status === 'not_found'
+          ? `The browser session did not discover an obvious ${lowerLabel} entry point to inspect.`
+          : `The model did not return a dedicated ${lowerLabel} result, so this section is using the captured run context.`,
+      focus
+        ? `The review was trying to inspect ${focus.toLowerCase()}.`
+        : `This review still centered on the most visible ${lowerLabel} cues in the captured screens.`,
+      shadowDomBlocked
+        ? 'A shadow DOM boundary blocked direct interaction, which reduced the amount of structured evidence available for this test.'
+        : 'Additional direct evidence from the target flow would make this test result more specific on the next run.',
+    ],
+  };
 }
 
 function normalizeRecommendedTestIds(

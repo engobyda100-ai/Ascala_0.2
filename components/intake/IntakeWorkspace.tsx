@@ -8,19 +8,22 @@ import { AgentChatPanel } from '@/components/intake/AgentChatPanel';
 import {
   ExpandedResultsReaderSurface,
   getPreferredResultTest,
-  ResultsPanel,
   TestReportReaderOverlay,
 } from '@/components/intake/ResultsPanel';
-import { ValidationPanel } from '@/components/intake/ValidationPanel';
+import { RightPanelFlow } from '@/components/intake/RightPanelFlow';
+import { cn } from '@/lib/utils';
 import type {
   BrowserExplorationSummary,
   ChatAgentRequest,
   ChatAgentResponse,
   ChatAgentMode,
+  GeneratedPersona,
   InputMode,
   IntakeChatMessage,
   IntakeCoachMessagePayload,
+  PersonaGenerationResponse,
   ReviewAttachedFileMetadata,
+  PersonaGenerationRequest,
   ReviewRequest,
   StructuredIntakeContext,
   StructuredIntakeUpdate,
@@ -36,13 +39,19 @@ import type {
 } from '@/lib/types';
 import { VALIDATION_TEST_CATALOG } from '@/lib/types';
 
-const VALIDATION_STAGES = [
-  'Preparing the current validation suite...',
-  'Generating the target persona...',
-  'Running the browser walkthrough...',
-  'Capturing page context and screenshots...',
-  'Analyzing UX findings and recommendations...',
-] as const;
+function createValidationStages(selectedPersona: GeneratedPersona | null) {
+  return [
+    'Preparing the current validation suite...',
+    selectedPersona
+      ? `Preparing ${selectedPersona.name} for the run...`
+      : 'Generating the target persona...',
+    'Running the browser walkthrough...',
+    'Capturing page context and screenshots...',
+    selectedPersona
+      ? `Analyzing UX findings through ${selectedPersona.name}'s lens...`
+      : 'Analyzing UX findings and recommendations...',
+  ] as const;
+}
 
 const VALIDATION_TEST_GROUPS: ValidationTestGroup[] = [
   {
@@ -65,6 +74,10 @@ const INITIAL_MESSAGES: IntakeChatMessage[] = [
 ];
 
 export function IntakeWorkspace() {
+  const [activeWorkspacePanel, setActiveWorkspacePanel] = useState<
+    'sources' | 'chat' | 'studio'
+  >('chat');
+  const [hasRevealedWorkspacePanels, setHasRevealedWorkspacePanels] = useState(false);
   const [inputMode, setInputMode] = useState<InputMode>('url');
   const [appUrl, setAppUrl] = useState('');
   const [figmaUrl, setFigmaUrl] = useState('');
@@ -84,6 +97,25 @@ export function IntakeWorkspace() {
   const [isChatResponding, setIsChatResponding] = useState(false);
   const [latestBrowserExplorationSummary, setLatestBrowserExplorationSummary] =
     useState<BrowserExplorationSummary | null>(null);
+  const [personaCount, setPersonaCount] = useState(3);
+  const [generatedPersonas, setGeneratedPersonas] = useState<GeneratedPersona[]>([]);
+  const [selectedPersonaId, setSelectedPersonaId] = useState<string | null>(null);
+  const [personaGenerationStatus, setPersonaGenerationStatus] = useState<
+    'idle' | 'loading' | 'success' | 'error'
+  >('idle');
+  const [personaGenerationError, setPersonaGenerationError] = useState<string | undefined>();
+  const [generatedPersonaContextKey, setGeneratedPersonaContextKey] = useState<string | null>(
+    null
+  );
+  const [pendingPersonaRegenerationContextKey, setPendingPersonaRegenerationContextKey] =
+    useState<string | null>(null);
+  const [ignoredPersonaContextKey, setIgnoredPersonaContextKey] = useState<string | null>(
+    null
+  );
+  const [requiresPersonaRegeneration, setRequiresPersonaRegeneration] =
+    useState(false);
+  const [lastRunPersonaId, setLastRunPersonaId] = useState<string | null>(null);
+  const [lastRunPersonaName, setLastRunPersonaName] = useState<string | null>(null);
   const [selectedTestIds, setSelectedTestIds] = useState<ValidationTestId[]>(
     Array.from(INITIAL_SELECTED_TEST_IDS)
   );
@@ -114,11 +146,28 @@ export function IntakeWorkspace() {
     [appUrl, figmaUrl, inputMode, intakeUpdates, messages, selectedTestIds, uploadedFiles]
   );
   const intakeSignalCount = countStructuredIntakeSignals(structuredIntake);
+  const personaGenerationReadiness = useMemo(
+    () =>
+      getPersonaGenerationReadiness({
+        intakeSignalCount,
+        messages,
+        uploadedFiles,
+      }),
+    [intakeSignalCount, messages, uploadedFiles]
+  );
+  const selectedPersona = useMemo(
+    () =>
+      generatedPersonas.find((persona) => persona.id === selectedPersonaId) || null,
+    [generatedPersonas, selectedPersonaId]
+  );
   const completedSelectedTestIds = useMemo(
     () => selectedTestIds.filter((testId) => Boolean(completedResultsById[testId])),
     [completedResultsById, selectedTestIds]
   );
-  const pendingTestIds = useMemo(() => selectedTestIds, [selectedTestIds]);
+  const pendingTestIds = useMemo(
+    () => selectedTestIds.filter((testId) => !completedResultsById[testId]),
+    [completedResultsById, selectedTestIds]
+  );
   const resultSummary = useMemo(
     () =>
       buildResultSummary({
@@ -144,6 +193,47 @@ export function IntakeWorkspace() {
     () => resultTests.filter((test) => test.status === 'completed'),
     [resultTests]
   );
+  const personaContextKey = useMemo(
+    () =>
+      buildPersonaContextKey({
+        appUrl: getActiveTextTarget(inputMode, appUrl, figmaUrl),
+        inputMode,
+        messages,
+        uploadedFiles,
+      }),
+    [appUrl, figmaUrl, inputMode, messages, uploadedFiles]
+  );
+  const validationStages = useMemo(
+    () => createValidationStages(selectedPersona),
+    [selectedPersona]
+  );
+  const hasPendingPersonaRegenerationDecision = Boolean(
+    pendingPersonaRegenerationContextKey
+  );
+  const hasPersonasForCurrentCount =
+    generatedPersonas.length > 0 && generatedPersonas.length === personaCount;
+  const resultsPersonaBadge = useMemo(() => {
+    if (!lastRunPersonaName || !resultSummary) {
+      return null;
+    }
+
+    if (
+      hasPendingPersonaRegenerationDecision ||
+      requiresPersonaRegeneration ||
+      selectedPersonaId !== lastRunPersonaId
+    ) {
+      return `Results reflect ${lastRunPersonaName}`;
+    }
+
+    return null;
+  }, [
+    hasPendingPersonaRegenerationDecision,
+    lastRunPersonaId,
+    lastRunPersonaName,
+    requiresPersonaRegeneration,
+    resultSummary,
+    selectedPersonaId,
+  ]);
 
   const canRun =
     hasValidInput({
@@ -153,8 +243,27 @@ export function IntakeWorkspace() {
       screenshots,
       videos,
     }) &&
-    pendingTestIds.length > 0 &&
+    selectedTestIds.length > 0 &&
+    Boolean(selectedPersona) &&
+    hasPersonasForCurrentCount &&
+    !hasPendingPersonaRegenerationDecision &&
+    !requiresPersonaRegeneration &&
+    personaGenerationStatus !== 'loading' &&
     runState.status !== 'running';
+  const canGeneratePersonas =
+    personaGenerationReadiness.isReady &&
+    personaGenerationStatus !== 'loading' &&
+    runState.status !== 'running';
+
+  useEffect(() => {
+    const animationFrame = window.requestAnimationFrame(() => {
+      setHasRevealedWorkspacePanels(true);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(animationFrame);
+    };
+  }, []);
 
   useEffect(() => {
     messagesRef.current = messages;
@@ -186,6 +295,49 @@ export function IntakeWorkspace() {
     setIsResultPopupOpen(false);
     setIsExpandedResultsOpen(false);
   }, [runState.status]);
+
+  useEffect(() => {
+    if (
+      runState.status === 'running' ||
+      !generatedPersonaContextKey ||
+      generatedPersonas.length === 0
+    ) {
+      return;
+    }
+
+    if (personaContextKey === generatedPersonaContextKey) {
+      setPendingPersonaRegenerationContextKey(null);
+      return;
+    }
+
+    if (requiresPersonaRegeneration || ignoredPersonaContextKey === personaContextKey) {
+      return;
+    }
+
+    setPendingPersonaRegenerationContextKey(personaContextKey);
+  }, [
+    generatedPersonaContextKey,
+    generatedPersonas.length,
+    ignoredPersonaContextKey,
+    personaContextKey,
+    requiresPersonaRegeneration,
+    runState.status,
+  ]);
+
+  const handlePersonaCountChange = (nextCount: number) => {
+    setPersonaCount(Math.max(3, Math.min(10, nextCount)));
+  };
+
+  const handleAcceptPersonaRegenerationPrompt = () => {
+    setPendingPersonaRegenerationContextKey(null);
+    setIgnoredPersonaContextKey(null);
+    setRequiresPersonaRegeneration(true);
+  };
+
+  const handleDismissPersonaRegenerationPrompt = () => {
+    setPendingPersonaRegenerationContextKey(null);
+    setIgnoredPersonaContextKey(personaContextKey);
+  };
 
   const handleAddFiles = async (files: FileList | File[]) => {
     const fileList = Array.from(files);
@@ -361,6 +513,74 @@ export function IntakeWorkspace() {
     return data;
   };
 
+  const fetchGeneratedPersonas = async (request: PersonaGenerationRequest) => {
+    const response = await fetch('/api/personas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    });
+    const data = (await response.json()) as PersonaGenerationResponse & {
+      error?: string;
+    };
+
+    if (!response.ok) {
+      throw new Error(data.error || 'Persona generation failed');
+    }
+
+    return data.personas;
+  };
+
+  const handleGeneratePersonas = async () => {
+    if (personaGenerationStatus === 'loading') {
+      return;
+    }
+
+    if (!personaGenerationReadiness.isReady) {
+      setPersonaGenerationStatus('error');
+      setPersonaGenerationError(personaGenerationReadiness.message);
+      return;
+    }
+
+    setPersonaGenerationStatus('loading');
+    setPersonaGenerationError(undefined);
+    setSelectedPersonaId(null);
+
+    const requestContextKey = personaContextKey;
+
+    try {
+      const personas = await fetchGeneratedPersonas(
+        buildPersonaGenerationRequest({
+          appUrl,
+          figmaUrl,
+          inputMode,
+          messages,
+          personaCount,
+          screenshotCount: inputMode === 'video' ? videos.length : screenshots.length,
+          structuredIntake,
+          uploadedFiles,
+        })
+      );
+
+      setGeneratedPersonas(personas);
+      setGeneratedPersonaContextKey(requestContextKey);
+      setPendingPersonaRegenerationContextKey(null);
+      setIgnoredPersonaContextKey(null);
+      setRequiresPersonaRegeneration(false);
+      setPersonaGenerationStatus('success');
+      setPersonaGenerationError(undefined);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Persona generation failed unexpectedly.';
+
+      setPersonaGenerationStatus('error');
+      setPersonaGenerationError(message);
+    }
+  };
+
+  const handleSelectPersona = (personaId: string) => {
+    setSelectedPersonaId(personaId);
+  };
+
   const handleSendMessage = async () => {
     const trimmed = draftMessage.trim();
 
@@ -394,11 +614,12 @@ export function IntakeWorkspace() {
       const response = await fetchCoachResponse({
         attachedFiles: mapAttachedFiles(uploadedFiles),
         browserExplorationSummary: latestBrowserExplorationSummary || undefined,
-        currentStage: VALIDATION_STAGES[stageIndex],
+        currentStage: validationStages[stageIndex],
         latestResultsSummary: resultSummary,
         recentMessages: getRecentMessages(nextMessages),
         runState,
         selectedTestIds,
+        selectedPersona,
         selectedTestResults: completedResultTests,
         structuredIntake: nextStructuredIntake,
         trigger: 'message',
@@ -447,8 +668,32 @@ export function IntakeWorkspace() {
       return;
     }
 
+    if (!selectedPersona) {
+      const error = 'Generate personas and choose one before running the simulation.';
+
+      setRunState({ status: 'error', error });
+      return;
+    }
+
+    if (hasPendingPersonaRegenerationDecision) {
+      const error =
+        'The context changed. Decide whether to regenerate personas before running the simulation.';
+
+      setRunState({ status: 'error', error });
+      return;
+    }
+
+    if (requiresPersonaRegeneration || !hasPersonasForCurrentCount) {
+      const error =
+        'Generate personas again before running the simulation.';
+
+      setRunState({ status: 'error', error });
+      return;
+    }
+
     setRunState({ status: 'running' });
     setStageIndex(0);
+    const runPersona = selectedPersona;
 
     const payload = await buildReviewRequest({
       appUrl,
@@ -457,14 +702,15 @@ export function IntakeWorkspace() {
       messages,
       screenshots,
       videos,
-      selectedTestIds: pendingTestIds,
+      selectedTestIds,
+      selectedPersona: runPersona,
       structuredIntake,
       uploadedFiles,
     });
 
     const progressInterval = window.setInterval(() => {
       setStageIndex((current) =>
-        current >= VALIDATION_STAGES.length - 1 ? current : current + 1
+        current >= validationStages.length - 1 ? current : current + 1
       );
     }, 2500);
 
@@ -504,11 +750,12 @@ export function IntakeWorkspace() {
       );
       const lastRunAt = createRunTimestamp();
 
-      setStageIndex(VALIDATION_STAGES.length - 1);
+      setStageIndex(validationStages.length - 1);
       setCompletedResultsById(mergedCompletedResults);
-      setSelectedTestIds([]);
       setResultSnapshot(nextResultSnapshot);
       setLatestBrowserExplorationSummary(browserExplorationSummary);
+      setLastRunPersonaId(runPersona.id);
+      setLastRunPersonaName(runPersona.name);
       setRunState({
         status: 'success',
         lastRunAt,
@@ -524,7 +771,7 @@ export function IntakeWorkspace() {
         const response = await fetchCoachResponse({
           attachedFiles: mapAttachedFiles(uploadedFiles),
           browserExplorationSummary: browserExplorationSummary || undefined,
-          currentStage: VALIDATION_STAGES[VALIDATION_STAGES.length - 1],
+          currentStage: validationStages[validationStages.length - 1],
           latestResultsSummary: mergedResultSummary,
           recentMessages: getRecentMessages(messagesRef.current),
           runState: {
@@ -532,6 +779,7 @@ export function IntakeWorkspace() {
             lastRunAt,
           },
           selectedTestIds,
+          selectedPersona: runPersona,
           selectedTestResults: completedTestsForCoach,
           structuredIntake,
           trigger: 'post-run',
@@ -562,7 +810,7 @@ export function IntakeWorkspace() {
     }
   };
 
-  const progressSteps = createProgressSteps(runState.status, stageIndex);
+  const progressSteps = createProgressSteps(runState.status, stageIndex, selectedPersona);
 
   const handleOpenResultTestReport = (testId: ValidationResultTestSummary['id']) => {
     setActiveResultTestId(testId);
@@ -580,50 +828,104 @@ export function IntakeWorkspace() {
   };
 
   return (
-    <div className="h-full overflow-hidden px-3 py-3 sm:px-4 sm:py-4 lg:px-5">
-      <div className="flex h-full min-h-0 flex-col gap-3">
-        <header className="relative rounded-2xl bg-white/45 px-4 py-2 shadow-[0_20px_48px_-26px_rgba(61,23,0,0.34)] backdrop-blur-sm sm:px-5">
-          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-            <div className="min-w-0">
-              <Image
-                alt="Ascala"
-                className="h-10 w-auto object-contain sm:h-12"
-                height={84}
-                priority
-                src="/ascala-logo.png"
-                width={358}
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background/50 px-3 py-1.5 font-medium transition-colors hover:bg-background/70"
-              >
-                <Share2 className="h-3.5 w-3.5 text-[#C26A43]" />
-                <span>Share</span>
-              </button>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background/50 px-3 py-1.5 font-medium transition-colors hover:bg-background/70"
-              >
-                <Settings className="h-3.5 w-3.5 text-[#C26A43]" />
-                <span>Settings</span>
-              </button>
-              <button
-                type="button"
-                className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-background/50 px-3 py-1.5 font-medium transition-colors hover:bg-background/70"
-              >
-                <CircleUserRound className="h-3.5 w-3.5 text-[#C26A43]" />
-                <span>Account</span>
-              </button>
-            </div>
+    <div className="h-full overflow-hidden px-3 py-2 sm:px-4 sm:py-3 lg:px-5">
+      <div className="flex h-full min-h-0 flex-col gap-2">
+        <header className="flex items-center justify-between gap-3 border-b border-border/35 pb-2">
+          <div className="min-w-0">
+            <Image
+              alt="Ascala"
+              className="h-7 w-auto object-contain sm:h-8"
+              height={84}
+              priority
+              src="/ascala-logo.png"
+              width={358}
+            />
           </div>
-          <div className="pointer-events-none absolute inset-x-6 -bottom-4 h-6 bg-gradient-to-b from-[rgba(61,23,0,0.14)] via-[rgba(61,23,0,0.05)] to-transparent blur-md" />
+          <div className="ml-auto flex shrink-0 items-center gap-1.5 text-[10px] text-muted-foreground sm:gap-2 sm:text-[11px]">
+            <button
+              type="button"
+              className="inline-flex items-center rounded-full border border-border/70 bg-background/45 px-2.5 py-1.5 font-medium transition-colors hover:bg-background/70"
+            >
+              Tokens = 20
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full border border-[#C26A43]/40 bg-[#F6E4D9] px-2.5 py-1.5 font-medium text-[#8E4524] transition-colors hover:bg-[#F1D7C8]"
+            >
+              <span className="hidden sm:inline">Upgrade Plan</span>
+              <span className="sm:hidden">Upgrade</span>
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/45 px-2.5 py-1.5 font-medium transition-colors hover:bg-background/70"
+            >
+              <Share2 className="h-3.5 w-3.5 text-[#C26A43]" />
+              <span className="hidden sm:inline">Share</span>
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/45 px-2.5 py-1.5 font-medium transition-colors hover:bg-background/70"
+            >
+              <Settings className="h-3.5 w-3.5 text-[#C26A43]" />
+              <span className="hidden sm:inline">Settings</span>
+            </button>
+            <button
+              type="button"
+              className="inline-flex items-center gap-1 rounded-full border border-border/70 bg-background/45 px-2.5 py-1.5 font-medium transition-colors hover:bg-background/70"
+            >
+              <CircleUserRound className="h-3.5 w-3.5 text-[#C26A43]" />
+              <span className="hidden sm:inline">Account</span>
+            </button>
+          </div>
         </header>
 
+        <div className="min-[1280px]:hidden">
+          <div className="flex items-center gap-2 rounded-full border border-border/45 bg-white/42 p-1 backdrop-blur-sm">
+            {[
+              { id: 'sources', label: 'Sources' },
+              { id: 'chat', label: 'Chat' },
+              { id: 'studio', label: 'Studio' },
+            ].map((panel) => {
+              const isActive = activeWorkspacePanel === panel.id;
+
+              return (
+                <button
+                  key={panel.id}
+                  type="button"
+                  onClick={() =>
+                    setActiveWorkspacePanel(
+                      panel.id as 'sources' | 'chat' | 'studio'
+                    )
+                  }
+                  className={cn(
+                    'flex-1 rounded-full px-3 py-2 text-[12px] font-medium transition-colors',
+                    isActive
+                      ? 'bg-[#3D1700] text-white shadow-sm'
+                      : 'text-foreground/70 hover:bg-white/55'
+                  )}
+                >
+                  {panel.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
         <div className="relative min-h-0 flex-1">
-          <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[216px_minmax(0,1.7fr)_388px] 2xl:grid-cols-[224px_minmax(0,1.85fr)_408px]">
-            <div className="min-h-0">
+          <div className="flex h-full min-h-0 flex-col gap-3 min-[1280px]:grid min-[1280px]:grid-cols-[216px_minmax(0,1.7fr)_388px] min-[1600px]:grid-cols-[224px_minmax(0,1.85fr)_408px]">
+            <div
+              className={cn(
+                'min-h-0 workspace-panel-reveal transition-all duration-700 min-[1280px]:will-change-transform',
+                activeWorkspacePanel === 'sources'
+                  ? 'flex flex-1 flex-col'
+                  : 'hidden',
+                'min-[1280px]:block',
+                hasRevealedWorkspacePanels
+                  ? 'min-[1280px]:translate-x-0 min-[1280px]:opacity-100'
+                  : 'min-[1280px]:-translate-x-8 min-[1280px]:opacity-0'
+              )}
+              style={{ transitionDelay: hasRevealedWorkspacePanels ? '0ms' : '0ms' }}
+            >
               <AssetsPanel
                 appUrl={appUrl}
                 figmaUrl={figmaUrl}
@@ -643,7 +945,17 @@ export function IntakeWorkspace() {
               />
             </div>
 
-            <div className="min-h-0">
+            <div
+              className={cn(
+                'min-h-0 workspace-panel-reveal transition-all duration-700 min-[1280px]:will-change-transform',
+                activeWorkspacePanel === 'chat' ? 'flex flex-1 flex-col' : 'hidden',
+                'min-[1280px]:block',
+                hasRevealedWorkspacePanels
+                  ? 'min-[1280px]:translate-x-0 min-[1280px]:opacity-100'
+                  : 'min-[1280px]:-translate-x-8 min-[1280px]:opacity-0'
+              )}
+              style={{ transitionDelay: hasRevealedWorkspacePanels ? '120ms' : '120ms' }}
+            >
               <AgentChatPanel
                 checkedChecklistItems={checkedChecklistItems}
                 intakeSignalCount={intakeSignalCount}
@@ -659,36 +971,61 @@ export function IntakeWorkspace() {
               />
             </div>
 
-            <div className="min-h-0 rounded-[22px] border border-border/40 bg-white/48 shadow-[0_28px_70px_-32px_rgba(68,48,29,0.72)] backdrop-blur-sm">
-              <div className="flex h-full min-h-0 flex-col">
-                <div className="min-h-0 basis-[60%] border-b border-border/40">
-                  <ValidationPanel
-                    completedTestIds={completedSelectedTestIds}
-                    currentStage={VALIDATION_STAGES[stageIndex]}
-                    groups={VALIDATION_TEST_GROUPS}
-                    pendingTestIds={pendingTestIds}
-                    selectedTestIds={selectedTestIds}
-                    runState={runState}
-                    canRun={canRun}
-                    onRun={handleRunValidation}
-                    onToggleTest={handleToggleValidationTest}
-                  />
-                </div>
-                <div className="min-h-0 basis-[40%]">
-                  <ResultsPanel
-                    onOpenExpandedReader={handleOpenExpandedResults}
-                    onOpenTestReport={handleOpenResultTestReport}
-                    progressSteps={progressSteps}
-                    resultSummary={resultSummary}
-                    runState={runState}
-                  />
-                </div>
-              </div>
+            <div
+              className={cn(
+                'min-h-0 rounded-[22px] border border-border/40 bg-white/48 shadow-[0_28px_70px_-32px_rgba(68,48,29,0.72)] backdrop-blur-sm workspace-panel-reveal transition-all duration-700 min-[1280px]:will-change-transform',
+                activeWorkspacePanel === 'studio' ? 'flex flex-1 flex-col' : 'hidden',
+                'min-[1280px]:block',
+                hasRevealedWorkspacePanels
+                  ? 'min-[1280px]:translate-x-0 min-[1280px]:opacity-100'
+                  : 'min-[1280px]:-translate-x-8 min-[1280px]:opacity-0'
+              )}
+              style={{ transitionDelay: hasRevealedWorkspacePanels ? '240ms' : '240ms' }}
+            >
+              <RightPanelFlow
+                completedTestIds={completedSelectedTestIds}
+                currentStage={validationStages[stageIndex]}
+                generatedPersonas={generatedPersonas}
+                groups={VALIDATION_TEST_GROUPS}
+                pendingTestIds={pendingTestIds}
+                personaCount={personaCount}
+                personaGenerationError={personaGenerationError}
+                personaGenerationStatus={personaGenerationStatus}
+                hasPendingPersonaRegenerationDecision={
+                  hasPendingPersonaRegenerationDecision
+                }
+                progressSteps={progressSteps}
+                requiresPersonaRegeneration={requiresPersonaRegeneration}
+                resultsPersonaBadge={resultsPersonaBadge}
+                resultSummary={resultSummary}
+                runState={runState}
+                selectedTestIds={selectedTestIds}
+                selectedPersonaId={selectedPersonaId}
+                canRun={canRun}
+                canGeneratePersonas={canGeneratePersonas}
+                hasPersonasForCurrentCount={hasPersonasForCurrentCount}
+                personaGenerationReadinessMessage={
+                  personaGenerationReadiness.message
+                }
+                onAcceptPersonaRegenerationPrompt={
+                  handleAcceptPersonaRegenerationPrompt
+                }
+                onDismissPersonaRegenerationPrompt={
+                  handleDismissPersonaRegenerationPrompt
+                }
+                onGeneratePersonas={handleGeneratePersonas}
+                onOpenExpandedReader={handleOpenExpandedResults}
+                onOpenTestReport={handleOpenResultTestReport}
+                onPersonaCountChange={handlePersonaCountChange}
+                onRun={handleRunValidation}
+                onSelectPersona={handleSelectPersona}
+                onToggleTest={handleToggleValidationTest}
+              />
             </div>
           </div>
 
           {isExpandedResultsOpen && resultSummary && activeResultTest ? (
-            <div className="absolute inset-y-0 left-0 right-0 z-40 xl:left-[calc(216px+0.75rem)] 2xl:left-[calc(224px+0.75rem)]">
+            <div className="absolute inset-0 z-40 min-[1280px]:left-[calc(216px+0.75rem)] min-[1600px]:left-[calc(224px+0.75rem)]">
               <div
                 className="absolute inset-0 rounded-[28px] bg-[rgba(45,33,22,0.18)]"
                 onClick={() => setIsExpandedResultsOpen(false)}
@@ -766,12 +1103,13 @@ function getRecentMessages(messages: IntakeChatMessage[], limit = 10) {
 
 function createProgressSteps(
   runStatus: WorkspaceRunState['status'],
-  stageIndex: number
+  stageIndex: number,
+  selectedPersona: GeneratedPersona | null
 ): ValidationProgressStep[] {
   return [
     {
       id: 'persona',
-      label: 'Generating persona',
+      label: selectedPersona ? 'Preparing selected persona' : 'Generating persona',
       status: getProgressStatus(runStatus, stageIndex, 0),
     },
     {
@@ -824,6 +1162,7 @@ function buildReviewRequest({
   screenshots,
   videos,
   selectedTestIds,
+  selectedPersona,
   structuredIntake,
   uploadedFiles,
 }: {
@@ -834,6 +1173,7 @@ function buildReviewRequest({
   screenshots: File[];
   videos: File[];
   selectedTestIds: ValidationTestId[];
+  selectedPersona: GeneratedPersona;
   structuredIntake: StructuredIntakeContext;
   uploadedFiles: UploadedContextFile[];
 }): Promise<ReviewRequest> {
@@ -845,6 +1185,7 @@ function buildReviewRequest({
     screenshots,
     videos,
     selectedTestIds,
+    selectedPersona,
     structuredIntake,
     uploadedFiles,
   });
@@ -858,6 +1199,7 @@ async function buildReviewRequestPayload({
   screenshots,
   videos,
   selectedTestIds,
+  selectedPersona,
   structuredIntake,
   uploadedFiles,
 }: {
@@ -868,6 +1210,7 @@ async function buildReviewRequestPayload({
   screenshots: File[];
   videos: File[];
   selectedTestIds: ValidationTestId[];
+  selectedPersona: GeneratedPersona;
   structuredIntake: StructuredIntakeContext;
   uploadedFiles: UploadedContextFile[];
 }): Promise<ReviewRequest> {
@@ -901,12 +1244,66 @@ async function buildReviewRequestPayload({
     inputMode,
     productContext,
     screenshots: normalizedScreenshots,
+    selectedPersona,
     selectedTestIds,
     structuredIntake,
     targetMarket: buildReviewTargetMarket({
       appUrl: textTarget,
       inputMode,
       screenshotCount: inputMode === 'video' ? videos.length : screenshots.length,
+      intakeSummary,
+      productContext,
+      structuredIntake,
+    }),
+  };
+}
+
+function buildPersonaGenerationRequest({
+  appUrl,
+  figmaUrl,
+  inputMode,
+  messages,
+  personaCount,
+  screenshotCount,
+  structuredIntake,
+  uploadedFiles,
+}: {
+  appUrl: string;
+  figmaUrl: string;
+  inputMode: InputMode;
+  messages: IntakeChatMessage[];
+  personaCount: number;
+  screenshotCount: number;
+  structuredIntake: StructuredIntakeContext;
+  uploadedFiles: UploadedContextFile[];
+}): PersonaGenerationRequest {
+  const textTarget = getActiveTextTarget(inputMode, appUrl, figmaUrl).trim();
+  const productContext = buildProductContext({
+    appUrl: textTarget,
+    inputMode,
+    screenshotCount,
+    messages,
+    structuredIntake,
+    uploadedFiles,
+  });
+  const intakeSummary = buildIntakeSummary({
+    includeSelectedTests: false,
+    messages,
+    structuredIntake,
+    uploadedFiles,
+  });
+
+  return {
+    attachedFiles: mapAttachedFiles(uploadedFiles),
+    intakeSummary,
+    inputMode,
+    personaCount,
+    productContext,
+    structuredIntake,
+    targetMarket: buildReviewTargetMarket({
+      appUrl: textTarget,
+      inputMode,
+      screenshotCount,
       intakeSummary,
       productContext,
       structuredIntake,
@@ -975,6 +1372,9 @@ function mapSelectedTestsForSummary(report: UXReport): ValidationResultTestSumma
     label: testResult.label,
     score: clampScore(testResult.score),
     summary: testResult.summary,
+    quotes: testResult.quotes,
+    actionableChanges: testResult.actionableChanges,
+    keyInsights: testResult.keyInsights,
     keyFindings: testResult.keyFindings,
     recommendations: testResult.recommendations,
     wentWell: testResult.wentWell,
@@ -1013,6 +1413,14 @@ function buildResultSummary({
       id: testId,
       label: getValidationTestLabel(testId),
       summary: 'Pending run',
+      quotes: {
+        positive: `Run ${getValidationTestLabel(testId)} to capture a positive persona quote.`,
+        negative: `Run ${getValidationTestLabel(testId)} to capture a negative persona quote.`,
+      },
+      actionableChanges: createFallbackActionableChanges(
+        `${getValidationTestLabel(testId)} test`
+      ),
+      keyInsights: createFallbackKeyInsights(`${getValidationTestLabel(testId)} test`),
       keyFindings: [],
       recommendations: [],
       wentWell: [],
@@ -1046,6 +1454,31 @@ function buildResultSnapshot({
     topFindings: latestSummary.topFindings,
     topRecommendations: latestSummary.topRecommendations,
   };
+}
+
+function createFallbackActionableChanges(contextLabel: string) {
+  return [
+    {
+      priority: 'urgent' as const,
+      text: `Clarify the biggest blocker in this ${contextLabel}.`,
+    },
+    {
+      priority: 'important' as const,
+      text: `Refine the next most important friction point in this ${contextLabel}.`,
+    },
+    {
+      priority: 'later' as const,
+      text: `Polish the lower-priority rough edges in this ${contextLabel} after the core fixes land.`,
+    },
+  ];
+}
+
+function createFallbackKeyInsights(contextLabel: string) {
+  return [
+    `The strongest signal from this ${contextLabel} was not returned explicitly.`,
+    `A second clear insight for this ${contextLabel} was not returned explicitly.`,
+    `A third clear insight for this ${contextLabel} was not returned explicitly.`,
+  ];
 }
 
 function mergeCompletedResults(
@@ -1187,13 +1620,15 @@ function buildProductContext({
 }
 
 function buildIntakeSummary({
+  includeSelectedTests = true,
   messages,
-  selectedTestIds,
+  selectedTestIds = [],
   structuredIntake,
   uploadedFiles,
 }: {
+  includeSelectedTests?: boolean;
   messages: IntakeChatMessage[];
-  selectedTestIds: ValidationTestId[];
+  selectedTestIds?: ValidationTestId[];
   structuredIntake: StructuredIntakeContext;
   uploadedFiles: UploadedContextFile[];
 }) {
@@ -1205,11 +1640,13 @@ function buildIntakeSummary({
     .join(' ');
 
   const selectedTestsSummary =
-    selectedTestIds.length > 0
+    includeSelectedTests && selectedTestIds.length > 0
       ? `Selected validation tests: ${selectedTestIds
           .map((testId) => getValidationTestLabel(testId))
           .join(', ')}.`
-      : 'No validation tests selected.';
+      : includeSelectedTests
+        ? 'No validation tests selected.'
+        : 'Persona generation should rely on product context, intake chat, and uploaded files.';
 
   const fileSummary =
     uploadedFiles.length > 0
@@ -1228,6 +1665,34 @@ function buildIntakeSummary({
   ]
     .filter(Boolean)
     .join(' ');
+}
+
+function buildPersonaContextKey({
+  appUrl,
+  inputMode,
+  messages,
+  uploadedFiles,
+}: {
+  appUrl: string;
+  inputMode: InputMode;
+  messages: IntakeChatMessage[];
+  uploadedFiles: UploadedContextFile[];
+}) {
+  return JSON.stringify({
+    appUrl,
+    inputMode,
+    userMessages: messages
+      .filter((message) => message.role === 'user')
+      .map((message) => message.content.trim())
+      .filter(Boolean),
+    uploadedFiles: uploadedFiles.map((file) => ({
+      extractedText: file.extractedText || '',
+      ingestionStatus: file.ingestionStatus,
+      name: file.name,
+      size: file.size,
+      type: file.type,
+    })),
+  });
 }
 
 function mapAttachedFiles(
@@ -1681,6 +2146,43 @@ function countStructuredIntakeSignals(structuredIntake: StructuredIntakeContext)
     structuredIntake.accessibilityConcerns.length +
     structuredIntake.complianceConcerns.length
   );
+}
+
+function getPersonaGenerationReadiness({
+  intakeSignalCount,
+  messages,
+  uploadedFiles,
+}: {
+  intakeSignalCount: number;
+  messages: IntakeChatMessage[];
+  uploadedFiles: UploadedContextFile[];
+}) {
+  const userMessages = messages
+    .filter((message) => message.role === 'user')
+    .map((message) => message.content.trim())
+    .filter(Boolean);
+  const totalUserMessageCharacters = userMessages.reduce(
+    (sum, message) => sum + message.length,
+    0
+  );
+  const hasUploadedFiles = uploadedFiles.length > 0;
+  const hasSufficientChatContext =
+    intakeSignalCount >= 2 ||
+    userMessages.length >= 2 ||
+    totalUserMessageCharacters >= 120;
+
+  if (hasUploadedFiles || hasSufficientChatContext) {
+    return {
+      isReady: true,
+      message: 'Generate personas from the latest chat, product input, and uploaded context files.',
+    };
+  }
+
+  return {
+    isReady: false,
+    message:
+      'Upload context files or share enough product details in chat before generating personas.',
+  };
 }
 
 function pickFirstMatchingLine(lines: string[], keywords: string[]) {

@@ -1,19 +1,22 @@
-import type { ReactNode } from 'react';
+'use client';
+
+import { useEffect, useState, type ReactNode } from 'react';
+import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 import {
   Accessibility,
   ArrowLeft,
   Expand,
   FileSearch,
-  MinusCircle,
-  RefreshCw,
   Rocket,
   ShieldCheck,
-  Sparkles,
   TrendingUp,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 import type {
+  ResultActionPriority,
+  ResultActionableChange,
+  ResultNarrativeBlocks,
   ValidationProgressStep,
   ValidationResultTestSummary,
   ValidationResultSummary,
@@ -23,6 +26,7 @@ import type {
 interface ResultsPanelProps {
   progressSteps: ValidationProgressStep[];
   resultSummary: ValidationResultSummary | null;
+  resultsPersonaBadge?: string | null;
   runState: WorkspaceRunState;
   onOpenExpandedReader: () => void;
   onOpenTestReport: (testId: ValidationResultTestSummary['id']) => void;
@@ -31,6 +35,7 @@ interface ResultsPanelProps {
 export function ResultsPanel({
   progressSteps,
   resultSummary,
+  resultsPersonaBadge,
   runState,
   onOpenExpandedReader,
   onOpenTestReport,
@@ -43,7 +48,14 @@ export function ResultsPanel({
     <Card className="flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 bg-transparent shadow-none">
       <CardHeader className="min-h-[64px] justify-center border-b border-border/60 px-4 py-3">
         <div className="flex items-center justify-between gap-3">
-          <CardTitle className="text-base font-semibold">Results</CardTitle>
+          <div className="min-w-0">
+            <CardTitle className="text-base font-semibold">Results</CardTitle>
+            {resultsPersonaBadge ? (
+              <p className="mt-1 inline-flex rounded-full border border-[#C26A43]/35 bg-[#F6E4D9] px-2.5 py-1 text-[10px] font-medium text-[#8E4524]">
+                {resultsPersonaBadge}
+              </p>
+            ) : null}
+          </div>
           {hasCompletedResults ? (
             <button
               type="button"
@@ -51,12 +63,17 @@ export function ResultsPanel({
               className="flex items-center gap-1.5 rounded-full border border-border/55 bg-white/70 px-3 py-1.5 text-[11px] font-medium text-foreground shadow-sm transition-colors hover:bg-white"
             >
               <Expand className="h-3.5 w-3.5" />
-              Open Results
+              View Full Report
             </button>
           ) : null}
         </div>
       </CardHeader>
-      <CardContent className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+      <CardContent
+        className={cn(
+          'min-h-0 flex-1 px-4 py-3',
+          runState.status === 'running' ? 'overflow-hidden' : 'overflow-y-auto'
+        )}
+      >
         {runState.status === 'running' ? (
           <RunningResultsState
             hasCompletedResults={hasCompletedResults}
@@ -140,7 +157,7 @@ function EmptyResultsState() {
       <div className="max-w-sm space-y-2.5 text-center">
         <p className="text-sm font-medium">No results yet</p>
         <p className="text-[13px] leading-5 text-muted-foreground">
-          Select tests and click Run Tests to view results here.
+          Select tests and run the simulation to view results here.
         </p>
       </div>
     </div>
@@ -149,20 +166,61 @@ function EmptyResultsState() {
 
 function RunningResultsState({
   hasCompletedResults,
-  progressSteps,
+  progressSteps: _progressSteps,
 }: {
   hasCompletedResults: boolean;
   progressSteps: ValidationProgressStep[];
 }) {
-  const activeStep = progressSteps.find((step) => step.status === 'active');
+  const statusMessages = [
+    'Running Simulation',
+    'Chat with Ascala',
+    'Come Back in a Moment',
+  ];
+  const [activeMessageIndex, setActiveMessageIndex] = useState(0);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setActiveMessageIndex((currentIndex) =>
+        (currentIndex + 1) % statusMessages.length
+      );
+    }, 2000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [statusMessages.length]);
 
   return (
-    <div className={cn('space-y-3', hasCompletedResults ? 'pb-3' : 'h-full justify-center')}>
-      <div className="rounded-2xl border border-border/50 bg-white/55 px-3 py-2.5">
-        <p className="text-sm font-medium">Validation in progress...</p>
-        {activeStep ? (
-          <p className="mt-0.5 text-[12px] text-muted-foreground">{activeStep.label}</p>
-        ) : null}
+    <div
+      className={cn(
+        'flex h-full min-h-0 flex-col',
+        hasCompletedResults ? 'gap-3 pb-3' : 'h-full items-center justify-center'
+      )}
+    >
+      <div className="flex h-full min-h-0 w-full flex-col items-center justify-center gap-1.5 px-4 py-2">
+        <div className="flex h-[142px] w-full max-w-[220px] items-center justify-center sm:h-[156px] sm:max-w-[232px]">
+          <DotLottieReact
+            autoplay
+            loop
+            src="/animations/simulation.lottie"
+            className="h-full w-full"
+          />
+        </div>
+        <p className="text-center text-[15px] font-medium leading-5">
+          {statusMessages[activeMessageIndex]}
+        </p>
+        <div className="flex items-center justify-center gap-2">
+          {[0, 1, 2].map((dot) => (
+            <span
+              key={dot}
+              className="h-2.5 w-2.5 rounded-full bg-foreground/50 animate-pulse"
+              style={{
+                animationDelay: `${dot * 0.22}s`,
+                animationDuration: '0.9s',
+              }}
+            />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -181,30 +239,31 @@ function CompletedResultsState({
 
   return (
     <div className="space-y-3">
-      <section className="flex items-start justify-between gap-4 rounded-2xl border border-border/55 bg-white/42 px-3 py-3">
-        <div>
-          <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-            Overall score
-          </p>
-          <p className="mt-1 text-3xl font-semibold tracking-tight">
-            {resultSummary.overallScore}
-            <span className="ml-1 text-base text-muted-foreground">/100</span>
-          </p>
-        </div>
-
-        {completedTests.length > 0 ? (
-          <div className="flex min-w-0 flex-col gap-1.5">
-            {completedTests.map((test) => (
-              <InlineTestScoreRow
-                key={test.id}
-                onOpen={onOpenTestReport}
-                test={test}
-              />
-            ))}
+      <section className="rounded-2xl border border-border/55 bg-white/42 px-3 py-3">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Overall score
+            </p>
+            <p className="mt-1 text-3xl font-semibold tracking-tight">
+              {resultSummary.overallScore}
+              <span className="ml-1 text-base text-muted-foreground">/100</span>
+            </p>
           </div>
-        ) : null}
-      </section>
 
+          {completedTests.length > 0 ? (
+            <div className="flex min-w-0 flex-col gap-1.5">
+              {completedTests.map((test) => (
+                <InlineTestScoreRow
+                  key={test.id}
+                  onOpen={onOpenTestReport}
+                  test={test}
+                />
+              ))}
+            </div>
+          ) : null}
+        </div>
+      </section>
     </div>
   );
 }
@@ -349,112 +408,10 @@ function ReportReaderSurface({
             </p>
           </section>
 
-          <ReportReviewSections test={test} />
-          <ResultDetailList items={test.keyFindings} title="Key findings" />
-          <ResultDetailList
-            items={test.recommendations}
-            title="Recommendations"
-          />
+          <NarrativeBlocksSection narrative={test} />
         </div>
       </div>
     </div>
-  );
-}
-
-function ReportReviewSections({
-  test,
-}: {
-  test: ValidationResultTestSummary;
-}) {
-  return (
-    <section className="space-y-3">
-      <div className="space-y-1">
-        <h3 className="text-[13px] font-semibold">What to keep, change, and eliminate</h3>
-        <p className="text-[12px] leading-5 text-muted-foreground">
-          Every test report now calls out the clearest strengths, required changes, and
-          patterns to remove.
-        </p>
-      </div>
-      <div className="grid gap-3 lg:grid-cols-3">
-        <ReportReviewCard
-          placeholders={[
-            'No clear strength was returned for this report.',
-            'A second confirmed strength was not surfaced in this test area.',
-            'A third concrete win was not identified from the available evidence.',
-          ]}
-          icon={Sparkles}
-          items={test.wentWell}
-          title="Went well"
-        />
-        <ReportReviewCard
-          placeholders={[
-            'No change item was returned for this report.',
-            'A second required change was not surfaced in this test area.',
-            'A third concrete change item was not identified from the available evidence.',
-          ]}
-          icon={RefreshCw}
-          items={test.needsChange}
-          title="Needs to change"
-        />
-        <ReportReviewCard
-          placeholders={[
-            'No elimination item was returned for this report.',
-            'A second removable pattern was not surfaced in this test area.',
-            'A third thing to eliminate was not identified from the available evidence.',
-          ]}
-          icon={MinusCircle}
-          items={test.shouldEliminate}
-          title="Should be eliminated"
-        />
-      </div>
-    </section>
-  );
-}
-
-function ReportReviewCard({
-  icon: Icon,
-  items,
-  placeholders,
-  title,
-}: {
-  icon: typeof Sparkles;
-  items: string[];
-  placeholders: [string, string, string];
-  title: string;
-}) {
-  const displayItems = [
-    items[0]?.trim() || placeholders[0],
-    items[1]?.trim() || placeholders[1],
-    items[2]?.trim() || placeholders[2],
-  ];
-
-  return (
-    <section className="space-y-2 rounded-[24px] border border-border/45 bg-white/55 p-3">
-      <div className="flex items-center gap-2">
-        <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border/55 bg-white/85 text-foreground shadow-sm">
-          <Icon className="h-3.5 w-3.5" />
-        </div>
-        <div>
-          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            {title}
-          </p>
-          <p className="text-[11px] text-muted-foreground">3 takeaways</p>
-        </div>
-      </div>
-      <div className="space-y-2">
-        {displayItems.map((item, index) => (
-          <div
-            key={`${title}-${index}`}
-            className="rounded-2xl border border-border/45 bg-[rgba(252,248,242,0.88)] px-3 py-2.5"
-          >
-            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-              {index + 1}
-            </p>
-            <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{item}</p>
-          </div>
-        ))}
-      </div>
-    </section>
   );
 }
 
@@ -532,35 +489,136 @@ function ExpandedReaderOverview({
   );
 }
 
-function ResultDetailList({
-  title,
-  items,
+function NarrativeBlocksSection({
+  narrative,
 }: {
-  title: string;
-  items: string[];
+  narrative: Pick<
+    ResultNarrativeBlocks,
+    'quotes' | 'actionableChanges' | 'keyInsights'
+  >;
 }) {
-  if (items.length === 0) {
-    return null;
-  }
-
   return (
-    <section className="space-y-2">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-        {title}
-      </p>
+    <section className="space-y-4">
       <div className="space-y-2">
-        {items.map((item) => (
-          <div
-            key={item}
-            className="flex gap-2 rounded-2xl border border-border/45 bg-white/55 px-3 py-2.5"
-          >
-            <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50" />
-            <p className="text-[12px] leading-5 text-muted-foreground">{item}</p>
-          </div>
-        ))}
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          Persona quotes
+        </p>
+        <div className="grid gap-2 md:grid-cols-2">
+          <QuoteCard
+            label="Positive"
+            quote={narrative.quotes.positive}
+            tone="positive"
+          />
+          <QuoteCard
+            label="Negative"
+            quote={narrative.quotes.negative}
+            tone="negative"
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          Actionable changes
+        </p>
+        <div className="grid gap-2 md:grid-cols-3">
+          {narrative.actionableChanges.map((change) => (
+            <ActionableChangeCard key={change.priority} change={change} />
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          Key insights
+        </p>
+        <div className="space-y-2">
+          {narrative.keyInsights.map((insight, index) => (
+            <div
+              key={`${index}-${insight}`}
+              className="flex gap-2 rounded-2xl border border-border/45 bg-white/55 px-3 py-2.5"
+            >
+              <span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-foreground/45" />
+              <p className="text-[12px] leading-5 text-muted-foreground">{insight}</p>
+            </div>
+          ))}
+        </div>
       </div>
     </section>
   );
+}
+
+function QuoteCard({
+  label,
+  quote,
+  tone,
+}: {
+  label: string;
+  quote: string;
+  tone: 'positive' | 'negative';
+}) {
+  return (
+    <section
+      className={cn(
+        'rounded-[24px] border px-3 py-3',
+        tone === 'positive'
+          ? 'border-[rgba(216,164,74,0.35)] bg-[rgba(255,248,236,0.88)]'
+          : 'border-border/45 bg-white/55'
+      )}
+    >
+      <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        {label}
+      </p>
+      <p className="mt-2 text-[13px] leading-6 text-foreground/85">
+        {formatQuoteText(quote)}
+      </p>
+    </section>
+  );
+}
+
+function ActionableChangeCard({
+  change,
+}: {
+  change: ResultActionableChange;
+}) {
+  return (
+    <section className="rounded-[24px] border border-border/45 bg-white/55 px-3 py-3">
+      <div className="flex items-center gap-2">
+        <span className={cn('h-2.5 w-2.5 rounded-full', getPriorityDotClass(change.priority))} />
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+          {formatPriorityLabel(change.priority)}
+        </p>
+      </div>
+      <p className="mt-2 text-[12px] leading-5 text-muted-foreground">{change.text}</p>
+    </section>
+  );
+}
+
+function formatQuoteText(quote: string) {
+  const trimmed = quote.trim();
+
+  if (!trimmed) {
+    return '';
+  }
+
+  return /^["'].+["']$/.test(trimmed) ? trimmed : `"${trimmed}"`;
+}
+
+function formatPriorityLabel(priority: ResultActionPriority) {
+  return priority.charAt(0).toUpperCase() + priority.slice(1);
+}
+
+function getPriorityDotClass(priority: ResultActionPriority) {
+  switch (priority) {
+    case 'urgent':
+      return 'bg-[rgba(208,108,72,0.9)]';
+    case 'important':
+      return 'bg-[rgba(216,164,74,0.95)]';
+    case 'later':
+      return 'bg-[rgba(132,142,158,0.9)]';
+    default:
+      return 'bg-foreground/45';
+  }
 }
 
 function getTestIcon(testId: ValidationResultTestSummary['id']) {
