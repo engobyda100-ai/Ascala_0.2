@@ -46,9 +46,9 @@ export function ValidationPanel({
   const tokenCost = selectedCount * 4;
 
   return (
-    <Card className="flex h-full min-h-0 flex-col overflow-hidden rounded-none border-0 bg-transparent shadow-none">
-      <CardContent className="flex min-h-0 flex-1 flex-col gap-2 px-4 py-3">
-        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+    <Card className="rounded-none border-0 bg-transparent shadow-none">
+      <CardContent className="flex flex-col gap-2 px-4 py-3">
+        <div className="pr-1">
           <div className="space-y-2.5">
             <div className="space-y-0.5">
               <h3 className="text-[13px] font-semibold">Select validation tests</h3>

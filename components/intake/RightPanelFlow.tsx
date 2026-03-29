@@ -225,7 +225,7 @@ export function RightPanelFlow({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-2">
+    <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-2 pr-1">
       {hasPendingPersonaRegenerationDecision ? (
         <div className="rounded-[20px] border border-[#C26A43]/30 bg-[#FFF4EC] px-4 py-3 shadow-[0_18px_38px_-28px_rgba(61,23,0,0.32)]">
           <p className="text-[12px] font-semibold text-[#8E4524]">
@@ -263,8 +263,8 @@ export function RightPanelFlow({
         shouldFillActive
         title="Generate Persona"
       >
-        <div className="flex h-full min-h-0 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+        <div className="flex flex-col">
+          <div className="px-4 py-4">
             <div className="space-y-4">
               {personaGenerationStatus !== 'loading' ? (
                 <div className="rounded-[24px] border border-border/45 bg-white/40 px-4 py-4 shadow-[0_18px_38px_-28px_rgba(61,23,0,0.22)]">
@@ -484,8 +484,8 @@ export function RightPanelFlow({
         }
         title="Decide Tests"
       >
-        <div className="flex h-full min-h-0 flex-col">
-          <div className="min-h-0 flex-1">
+        <div className="flex flex-col">
+          <div>
             <ValidationPanel
               completedTestIds={completedTestIds}
               currentStage={currentStage}
@@ -528,7 +528,7 @@ export function RightPanelFlow({
         }
         title="Simulation Run"
       >
-        <div className="flex h-full min-h-0 flex-col">
+        <div className="flex flex-col">
           <div className="flex items-center justify-between gap-3 border-b border-border/45 px-4 py-3">
             <div className="min-w-0">
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
@@ -557,7 +557,7 @@ export function RightPanelFlow({
               </p>
             </div>
           </div>
-          <div className="min-h-0 flex-1">
+          <div>
             <ResultsPanel
               onOpenExpandedReader={onOpenExpandedReader}
               onOpenTestReport={onOpenTestReport}
@@ -597,11 +597,9 @@ function StepSection({
   return (
     <section
       className={cn(
-        'flex flex-col overflow-hidden rounded-[20px] border border-border/45 transition-all duration-200',
+        'shrink-0 rounded-[20px] border border-border/45 transition-all duration-200',
         isActive
-          ? shouldFillActive
-            ? 'min-h-0 flex-1 bg-white/58'
-            : 'shrink-0 bg-white/58'
+          ? 'bg-white/58'
           : 'shrink-0 bg-white/26',
         isLocked && 'opacity-60'
       )}
@@ -637,7 +635,7 @@ function StepSection({
       </button>
 
       {isActive && !isLocked ? (
-        <div className="min-h-0 flex-1 border-t border-border/45">{children}</div>
+        <div className="border-t border-border/45">{children}</div>
       ) : null}
     </section>
   );

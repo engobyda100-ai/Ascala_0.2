@@ -54,11 +54,14 @@ export async function runBrowserSession(
   const stagehand = new Stagehand({
     env: 'BROWSERBASE',
     apiKey: browserbaseApiKey,
+    disablePino: true,
+    logger: () => {},
     projectId: browserbaseProjectId,
     modelName: 'google/gemini-2.5-flash',
     modelClientOptions: {
       apiKey: geminiApiKey,
     },
+    verbose: 0,
   });
 
   const screenshots: ScreenCapture[] = [];
