@@ -25,6 +25,8 @@ interface ObjectivePlan extends BrowserExplorationObjective {
   extractInstruction: string;
 }
 
+const BROWSER_SESSION_MAX_ATTEMPTS = 2;
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -51,6 +53,108 @@ export async function runBrowserSession(
     throw new Error('Missing GEMINI_API_KEY or GOOGLE_GENERATIVE_AI_API_KEY');
   }
 
+  const objectivePlans = createObjectivePlans(
+    options.selectedTestIds || [],
+    options.structuredIntake,
+    persona
+  );
+  const isFigmaSimulation = options.inputMode === 'figma';
+  const figmaLinkType = isFigmaSimulation ? detectFigmaLinkType(appUrl) : null;
+  let lastError: unknown;
+
+  for (
+    let attemptNumber = 1;
+    attemptNumber <= BROWSER_SESSION_MAX_ATTEMPTS;
+    attemptNumber += 1
+  ) {
+    try {
+      return await runBrowserSessionAttempt({
+        appUrl,
+        browserbaseApiKey,
+        browserbaseProjectId,
+        geminiApiKey,
+        objectivePlans,
+        figmaLinkType,
+        isFigmaSimulation,
+        persona,
+      });
+    } catch (error) {
+      lastError = error;
+      const message =
+        error instanceof Error ? error.message : 'Unknown browser session error';
+      const shouldRetry =
+        attemptNumber < BROWSER_SESSION_MAX_ATTEMPTS &&
+        isRetryableBrowserSessionError(message);
+
+      console.warn('Browser session attempt failed', {
+        attemptNumber,
+        figmaLinkType,
+        isFigmaSimulation,
+        message,
+        shouldRetry,
+      });
+
+      if (shouldRetry) {
+        await sleep(1200 * attemptNumber);
+        continue;
+      }
+
+      break;
+    }
+  }
+
+  const message =
+    lastError instanceof Error ? lastError.message : 'Unknown browser session error';
+
+  if (isFigmaSimulation) {
+    console.warn('[Figma] Load failed, triggering fallback', {
+      figmaLinkType,
+      message,
+    });
+
+    return {
+      screenshots: [],
+      explorationSummary: buildFigmaFallbackSummary({
+        attempts: buildBrowserFailureAttempts({
+          appUrl,
+          objectivePlans,
+          failureMessage: message,
+          status: 'failed',
+        }),
+        figmaLinkType: figmaLinkType || 'unknown',
+        screenshotCount: 0,
+      }),
+      pipelineNotice:
+        "I couldn't fully access this Figma prototype. I'll simulate the experience based on available context.",
+    };
+  }
+
+  return buildBrowserSessionFailureResult({
+    appUrl,
+    failureMessage: message,
+    objectivePlans,
+  });
+}
+
+async function runBrowserSessionAttempt({
+  appUrl,
+  browserbaseApiKey,
+  browserbaseProjectId,
+  geminiApiKey,
+  objectivePlans,
+  figmaLinkType,
+  isFigmaSimulation,
+  persona,
+}: {
+  appUrl: string;
+  browserbaseApiKey: string;
+  browserbaseProjectId: string;
+  geminiApiKey: string;
+  objectivePlans: ObjectivePlan[];
+  figmaLinkType: FigmaLinkType | null;
+  isFigmaSimulation: boolean;
+  persona: Persona;
+}): Promise<BrowserSessionResult> {
   const stagehand = new Stagehand({
     env: 'BROWSERBASE',
     apiKey: browserbaseApiKey,
@@ -66,14 +170,7 @@ export async function runBrowserSession(
   });
 
   const screenshots: ScreenCapture[] = [];
-  const objectivePlans = createObjectivePlans(
-    options.selectedTestIds || [],
-    options.structuredIntake,
-    persona
-  );
   const attempts: BrowserExplorationAttempt[] = [];
-  const isFigmaSimulation = options.inputMode === 'figma';
-  const figmaLinkType = isFigmaSimulation ? detectFigmaLinkType(appUrl) : null;
 
   try {
     await stagehand.init();
@@ -187,28 +284,6 @@ export async function runBrowserSession(
         summary: buildBrowserExplorationSummary(attempts),
       },
     };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
-
-    if (isFigmaSimulation) {
-      console.warn('[Figma] Load failed, triggering fallback', {
-        figmaLinkType,
-        message,
-      });
-
-      return {
-        screenshots,
-        explorationSummary: buildFigmaFallbackSummary({
-          attempts,
-          figmaLinkType: figmaLinkType || 'unknown',
-          screenshotCount: screenshots.length,
-        }),
-        pipelineNotice:
-          "I couldn't fully access this Figma prototype. I'll simulate the experience based on available context.",
-      };
-    }
-
-    throw new Error(`Browser session failed: ${message}`);
   } finally {
     try {
       await stagehand.close();
@@ -216,6 +291,84 @@ export async function runBrowserSession(
       console.warn('Browser session cleanup failed:', error);
     }
   }
+}
+
+function buildBrowserSessionFailureResult({
+  appUrl,
+  failureMessage,
+  objectivePlans,
+}: {
+  appUrl: string;
+  failureMessage: string;
+  objectivePlans: ObjectivePlan[];
+}): BrowserSessionResult {
+  const attempts = buildBrowserFailureAttempts({
+    appUrl,
+    objectivePlans,
+    failureMessage,
+    status: 'failed',
+  });
+  const summarizedFailure = summarizeBrowserFailure(failureMessage);
+
+  return {
+    screenshots: [],
+    explorationSummary: {
+      objectives: objectivePlans.map(({ testId, label, goal, observationFocus }) => ({
+        testId,
+        label,
+        goal,
+        observationFocus,
+      })),
+      attempts,
+      summary:
+        objectivePlans.length > 0
+          ? `Live browser exploration was unavailable because ${summarizedFailure}. Use the persona, selected tests, and intake context as fallback evidence for these test goals.`
+          : `Live browser exploration was unavailable because ${summarizedFailure}. Use the persona and intake context as fallback evidence.`,
+    },
+    pipelineNotice:
+      'Live browser capture was unavailable for this run. The report below is inferred from the selected persona, chosen tests, product context, and any uploaded assets.',
+  };
+}
+
+function buildBrowserFailureAttempts({
+  appUrl,
+  objectivePlans,
+  failureMessage,
+  status,
+}: {
+  appUrl: string;
+  objectivePlans: ObjectivePlan[];
+  failureMessage: string;
+  status: BrowserExplorationAttempt['status'];
+}): BrowserExplorationAttempt[] {
+  const observation = [
+    `The automated browser session could not complete: ${summarizeBrowserFailure(failureMessage)}`,
+    'This test should be interpreted from intake context, visible product cues, and persona expectations instead.',
+  ].join(' ');
+
+  return objectivePlans.map((objective) => ({
+    testId: objective.testId,
+    label: objective.label,
+    goal: objective.goal,
+    attemptedAction: objective.actionInstruction,
+    status,
+    url: appUrl,
+    pageTitle: 'Browser session unavailable',
+    observation,
+  }));
+}
+
+function isRetryableBrowserSessionError(message: string) {
+  const compact = message.replace(/\s+/g, ' ').trim().toLowerCase();
+
+  return (
+    compact.includes('browser context is undefined') ||
+    compact.includes('cdp connection') ||
+    compact.includes('invalid session id') ||
+    compact.includes('target closed before cdp session could attach') ||
+    compact.includes('session') ||
+    compact.includes('websocket')
+  );
 }
 
 async function loadInitialPage({

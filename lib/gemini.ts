@@ -205,12 +205,15 @@ export async function analyzeApp(
       safetySettings,
     });
 
-    const extractedContent = screens
-      .map(
-        (s) =>
-          `Page: ${s.pageTitle}\nURL: ${s.url}\nContent: ${s.extractedContent}`
-      )
-      .join('\n\n---\n\n');
+    const extractedContent =
+      screens.length > 0
+        ? screens
+            .map(
+              (s) =>
+                `Page: ${s.pageTitle}\nURL: ${s.url}\nContent: ${s.extractedContent}`
+            )
+            .join('\n\n---\n\n')
+        : 'No live screenshots were captured for this run. Base the review on the browser exploration summary, selected tests, intake context, uploaded files, product URL, and persona lens instead.';
 
     const prompt = ANALYSIS_PROMPT
       .replace('{{PERSONA_JSON}}', JSON.stringify(persona, null, 2))
@@ -604,6 +607,10 @@ function formatScreenshotFlowGuidance(
   inputMode: InputMode | undefined,
   screens: ScreenCapture[]
 ) {
+  if (screens.length === 0) {
+    return 'No live screenshots were captured. Infer the user experience from the browser exploration summary, selected tests, attached context, product URL, and persona expectations instead of visual evidence.';
+  }
+
   if (inputMode !== 'screenshots') {
     if (inputMode === 'video') {
       if (screens.length <= 1) {
