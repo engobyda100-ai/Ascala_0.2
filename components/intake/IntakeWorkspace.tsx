@@ -65,6 +65,7 @@ const INITIAL_MESSAGES: IntakeChatMessage[] = [
 ];
 
 export function IntakeWorkspace() {
+  const [activeTab, setActiveTab] = useState<'sources' | 'chat' | 'studio'>('chat');
   const [inputMode, setInputMode] = useState<InputMode>('url');
   const [appUrl, setAppUrl] = useState('');
   const [figmaUrl, setFigmaUrl] = useState('');
@@ -592,14 +593,14 @@ export function IntakeWorkspace() {
   };
 
   return (
-    <div className="h-full overflow-hidden px-3 py-3 sm:px-4 sm:py-4 lg:px-5">
-      <div className="flex h-full min-h-0 flex-col gap-3">
-        <header className="relative rounded-2xl bg-white/45 px-4 py-2 shadow-[0_20px_48px_-26px_rgba(61,23,0,0.34)] backdrop-blur-sm sm:px-5">
-          <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+    <div className="h-full overflow-hidden px-3 py-2 sm:px-4 lg:px-5">
+      <div className="flex h-full min-h-0 flex-col gap-2">
+        <header className="px-1">
+          <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
               <Image
                 alt="Ascala"
-                className="h-10 w-auto object-contain sm:h-12"
+                className="h-7 w-auto object-contain sm:h-8"
                 height={84}
                 priority
                 src="/ascala-logo.png"
@@ -630,11 +631,32 @@ export function IntakeWorkspace() {
               </button>
             </div>
           </div>
-          <div className="pointer-events-none absolute inset-x-6 -bottom-4 h-6 bg-gradient-to-b from-[rgba(61,23,0,0.14)] via-[rgba(61,23,0,0.05)] to-transparent blur-md" />
         </header>
 
+        {/* Tab bar for small screens */}
+        <nav className="flex items-center justify-center gap-8 border-b border-border/30 px-4 xl:hidden">
+          {([['sources', 'Sources'], ['chat', 'Chat'], ['studio', 'Studio']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setActiveTab(key)}
+              className={`relative pb-2 pt-1 text-sm font-medium transition-colors ${
+                activeTab === key
+                  ? 'text-foreground'
+                  : 'text-muted-foreground hover:text-foreground/70'
+              }`}
+            >
+              {label}
+              {activeTab === key && (
+                <span className="absolute inset-x-0 bottom-0 h-0.5 rounded-full bg-[#C26A43]" />
+              )}
+            </button>
+          ))}
+        </nav>
+
         <div className="relative min-h-0 flex-1">
-          <div className="grid h-full min-h-0 gap-3 xl:grid-cols-[216px_minmax(0,1.7fr)_388px] 2xl:grid-cols-[224px_minmax(0,1.85fr)_408px]">
+          {/* Desktop: 3-column grid (xl+) */}
+          <div className="hidden h-full min-h-0 gap-3 xl:grid xl:grid-cols-[216px_minmax(0,1.7fr)_388px] 2xl:grid-cols-[224px_minmax(0,1.85fr)_408px]">
             <div className="min-h-0">
               <AssetsPanel
                 appUrl={appUrl}
@@ -697,6 +719,76 @@ export function IntakeWorkspace() {
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Mobile/Tablet: tab-switched panels (below xl) */}
+          <div className="h-full min-h-0 xl:hidden">
+            {activeTab === 'sources' && (
+              <div className="h-full min-h-0">
+                <AssetsPanel
+                  appUrl={appUrl}
+                  figmaUrl={figmaUrl}
+                  inputMode={inputMode}
+                  screenshots={screenshots}
+                  videos={videos}
+                  uploadedFiles={uploadedFiles}
+                  onAppUrlChange={setAppUrl}
+                  onFigmaUrlChange={setFigmaUrl}
+                  onInputModeChange={handleInputModeChange}
+                  onAddScreenshots={handleAddScreenshots}
+                  onRemoveScreenshot={handleRemoveScreenshot}
+                  onAddVideos={handleAddVideos}
+                  onRemoveVideo={handleRemoveVideo}
+                  onAddFiles={handleAddFiles}
+                  onRemoveFile={handleRemoveFile}
+                />
+              </div>
+            )}
+            {activeTab === 'chat' && (
+              <div className="h-full min-h-0">
+                <AgentChatPanel
+                  checkedChecklistItems={checkedChecklistItems}
+                  intakeSignalCount={intakeSignalCount}
+                  draftMessage={draftMessage}
+                  isResponding={isChatResponding}
+                  messages={messages}
+                  mode={chatMode}
+                  onApplyRecommendedTests={handleApplyRecommendedTests}
+                  onDraftChange={setDraftMessage}
+                  onSendMessage={handleSendMessage}
+                  onToggleChecklistItem={handleToggleChecklistItem}
+                  selectedTestIds={selectedTestIds}
+                />
+              </div>
+            )}
+            {activeTab === 'studio' && (
+              <div className="h-full min-h-0 rounded-[22px] border border-border/40 bg-white/48 shadow-[0_28px_70px_-32px_rgba(68,48,29,0.72)] backdrop-blur-sm">
+                <div className="flex h-full min-h-0 flex-col">
+                  <div className="min-h-0 basis-[60%] border-b border-border/40">
+                    <ValidationPanel
+                      completedTestIds={completedSelectedTestIds}
+                      currentStage={VALIDATION_STAGES[stageIndex]}
+                      groups={VALIDATION_TEST_GROUPS}
+                      pendingTestIds={pendingTestIds}
+                      selectedTestIds={selectedTestIds}
+                      runState={runState}
+                      canRun={canRun}
+                      onRun={handleRunValidation}
+                      onToggleTest={handleToggleValidationTest}
+                    />
+                  </div>
+                  <div className="min-h-0 basis-[40%]">
+                    <ResultsPanel
+                      onOpenExpandedReader={handleOpenExpandedResults}
+                      onOpenTestReport={handleOpenResultTestReport}
+                      progressSteps={progressSteps}
+                      resultSummary={resultSummary}
+                      runState={runState}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
           {isExpandedResultsOpen && resultSummary && activeResultTest ? (
