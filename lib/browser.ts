@@ -61,6 +61,7 @@ export async function runBrowserSession(
     modelClientOptions: {
       apiKey: geminiApiKey,
     },
+    useAPI: false,
     verbose: 0,
   });
 
@@ -209,7 +210,11 @@ export async function runBrowserSession(
 
     throw new Error(`Browser session failed: ${message}`);
   } finally {
-    await stagehand.close();
+    try {
+      await stagehand.close();
+    } catch (error) {
+      console.warn('Browser session cleanup failed:', error);
+    }
   }
 }
 
