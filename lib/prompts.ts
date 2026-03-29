@@ -185,7 +185,22 @@ Analyze the app and return a JSON object with this exact structure:
       "score": 73,
       "summary": "A concise 1-2 sentence assessment of this selected test area.",
       "keyFindings": ["Finding tied directly to this selected test", "Another relevant finding"],
-      "recommendations": ["Specific recommendation for this test", "Another relevant recommendation"]
+      "recommendations": ["Specific recommendation for this test", "Another relevant recommendation"],
+      "wentWell": [
+        "Specific element that worked well for this test area",
+        "Another concrete strength tied to visible evidence",
+        "Third concrete strength tied to visible evidence"
+      ],
+      "needsChange": [
+        "Specific thing that should be improved in this test area",
+        "Another concrete improvement needed",
+        "Third concrete improvement needed"
+      ],
+      "shouldEliminate": [
+        "Specific pattern, step, or message that should be removed",
+        "Another thing that should be eliminated",
+        "Third thing that should be eliminated"
+      ]
     }
   ]
 }
@@ -213,6 +228,9 @@ RULES:
 - Keep each selectedTestResults entry tightly scoped to that test's focus area, with findings and recommendations relevant to that test only.
 - Use the exact selected test id for each selectedTestResults.id.
 - Keep selected test summaries concise and specific.
+- For every selectedTestResults entry, return exactly 3 items in wentWell, exactly 3 items in needsChange, and exactly 3 items in shouldEliminate.
+- Make those three lists concrete, evidence-based, and specific to the selected test rather than generic UX advice.
+- If evidence is limited, still return all 3 items per list, but make the limitation explicit instead of inventing certainty.
 - Prioritize findings, metrics, and recommendations that are most relevant to the selected validation tests.`;
 
 export const INTAKE_CHAT_PROMPT = `You are ASCALA Intake Agent, a product validation coach.

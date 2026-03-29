@@ -437,10 +437,19 @@ function formatSelectedTestResults(
       const recommendations = test.recommendations.length
         ? `Recommendations: ${test.recommendations.join(' | ')}`
         : 'Recommendations: none yet';
+      const wentWell = test.wentWell.length
+        ? `Went well: ${test.wentWell.join(' | ')}`
+        : 'Went well: none yet';
+      const needsChange = test.needsChange.length
+        ? `Needs change: ${test.needsChange.join(' | ')}`
+        : 'Needs change: none yet';
+      const shouldEliminate = test.shouldEliminate.length
+        ? `Should eliminate: ${test.shouldEliminate.join(' | ')}`
+        : 'Should eliminate: none yet';
 
       return `${test.label} (${test.id}) [${test.status}] ${
         typeof test.score === 'number' ? `${test.score}/100` : 'pending'
-      }\nSummary: ${test.summary}\n${findings}\n${recommendations}`;
+      }\nSummary: ${test.summary}\n${findings}\n${recommendations}\n${wentWell}\n${needsChange}\n${shouldEliminate}`;
     })
     .join('\n\n');
 }
@@ -691,6 +700,9 @@ function normalizeSelectedTestResults(
         `No explicit ${catalogItem?.label.toLowerCase() || id} summary was returned.`,
       keyFindings: normalizeStringList(result?.keyFindings),
       recommendations: normalizeStringList(result?.recommendations),
+      wentWell: normalizeStringList(result?.wentWell),
+      needsChange: normalizeStringList(result?.needsChange),
+      shouldEliminate: normalizeStringList(result?.shouldEliminate),
     };
   });
 }

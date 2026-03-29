@@ -82,6 +82,9 @@ export interface ValidationTestResult {
   summary: string;
   keyFindings: string[];
   recommendations: string[];
+  wentWell: string[];
+  needsChange: string[];
+  shouldEliminate: string[];
 }
 
 export type BrowserExplorationAttemptStatus =
@@ -295,6 +298,9 @@ export interface ValidationResultTestSummary {
   summary: string;
   keyFindings: string[];
   recommendations: string[];
+  wentWell: string[];
+  needsChange: string[];
+  shouldEliminate: string[];
   status: 'completed' | 'pending';
 }
 

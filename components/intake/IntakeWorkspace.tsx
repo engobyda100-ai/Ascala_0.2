@@ -118,10 +118,7 @@ export function IntakeWorkspace() {
     () => selectedTestIds.filter((testId) => Boolean(completedResultsById[testId])),
     [completedResultsById, selectedTestIds]
   );
-  const pendingTestIds = useMemo(
-    () => selectedTestIds.filter((testId) => !completedResultsById[testId]),
-    [completedResultsById, selectedTestIds]
-  );
+  const pendingTestIds = useMemo(() => selectedTestIds, [selectedTestIds]);
   const resultSummary = useMemo(
     () =>
       buildResultSummary({
@@ -450,14 +447,6 @@ export function IntakeWorkspace() {
       return;
     }
 
-    if (pendingTestIds.length === 0) {
-      appendAssistantMessage(
-        'All currently selected tests already have completed results. Add a new test selection to run another incremental pass.',
-        'assistant-noop'
-      );
-      return;
-    }
-
     setRunState({ status: 'running' });
     setStageIndex(0);
 
@@ -497,9 +486,7 @@ export function IntakeWorkspace() {
         completedResultsById,
         latestSummary.selectedTests
       );
-      const nextPendingTestIds = selectedTestIds.filter(
-        (testId) => !mergedCompletedResults[testId]
-      );
+      const nextPendingTestIds: ValidationTestId[] = [];
       const nextResultSnapshot = buildResultSnapshot({
         completedResultsById: mergedCompletedResults,
         latestSummary,
@@ -519,6 +506,7 @@ export function IntakeWorkspace() {
 
       setStageIndex(VALIDATION_STAGES.length - 1);
       setCompletedResultsById(mergedCompletedResults);
+      setSelectedTestIds([]);
       setResultSnapshot(nextResultSnapshot);
       setLatestBrowserExplorationSummary(browserExplorationSummary);
       setRunState({
@@ -989,6 +977,9 @@ function mapSelectedTestsForSummary(report: UXReport): ValidationResultTestSumma
     summary: testResult.summary,
     keyFindings: testResult.keyFindings,
     recommendations: testResult.recommendations,
+    wentWell: testResult.wentWell,
+    needsChange: testResult.needsChange,
+    shouldEliminate: testResult.shouldEliminate,
     status: 'completed',
   }));
 }
@@ -1024,6 +1015,9 @@ function buildResultSummary({
       summary: 'Pending run',
       keyFindings: [],
       recommendations: [],
+      wentWell: [],
+      needsChange: [],
+      shouldEliminate: [],
       status: 'pending' as const,
     };
   });

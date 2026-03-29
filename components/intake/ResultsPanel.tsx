@@ -4,8 +4,11 @@ import {
   ArrowLeft,
   Expand,
   FileSearch,
+  MinusCircle,
+  RefreshCw,
   Rocket,
   ShieldCheck,
+  Sparkles,
   TrendingUp,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -346,6 +349,7 @@ function ReportReaderSurface({
             </p>
           </section>
 
+          <ReportReviewSections test={test} />
           <ResultDetailList items={test.keyFindings} title="Key findings" />
           <ResultDetailList
             items={test.recommendations}
@@ -354,6 +358,103 @@ function ReportReaderSurface({
         </div>
       </div>
     </div>
+  );
+}
+
+function ReportReviewSections({
+  test,
+}: {
+  test: ValidationResultTestSummary;
+}) {
+  return (
+    <section className="space-y-3">
+      <div className="space-y-1">
+        <h3 className="text-[13px] font-semibold">What to keep, change, and eliminate</h3>
+        <p className="text-[12px] leading-5 text-muted-foreground">
+          Every test report now calls out the clearest strengths, required changes, and
+          patterns to remove.
+        </p>
+      </div>
+      <div className="grid gap-3 lg:grid-cols-3">
+        <ReportReviewCard
+          placeholders={[
+            'No clear strength was returned for this report.',
+            'A second confirmed strength was not surfaced in this test area.',
+            'A third concrete win was not identified from the available evidence.',
+          ]}
+          icon={Sparkles}
+          items={test.wentWell}
+          title="Went well"
+        />
+        <ReportReviewCard
+          placeholders={[
+            'No change item was returned for this report.',
+            'A second required change was not surfaced in this test area.',
+            'A third concrete change item was not identified from the available evidence.',
+          ]}
+          icon={RefreshCw}
+          items={test.needsChange}
+          title="Needs to change"
+        />
+        <ReportReviewCard
+          placeholders={[
+            'No elimination item was returned for this report.',
+            'A second removable pattern was not surfaced in this test area.',
+            'A third thing to eliminate was not identified from the available evidence.',
+          ]}
+          icon={MinusCircle}
+          items={test.shouldEliminate}
+          title="Should be eliminated"
+        />
+      </div>
+    </section>
+  );
+}
+
+function ReportReviewCard({
+  icon: Icon,
+  items,
+  placeholders,
+  title,
+}: {
+  icon: typeof Sparkles;
+  items: string[];
+  placeholders: [string, string, string];
+  title: string;
+}) {
+  const displayItems = [
+    items[0]?.trim() || placeholders[0],
+    items[1]?.trim() || placeholders[1],
+    items[2]?.trim() || placeholders[2],
+  ];
+
+  return (
+    <section className="space-y-2 rounded-[24px] border border-border/45 bg-white/55 p-3">
+      <div className="flex items-center gap-2">
+        <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border/55 bg-white/85 text-foreground shadow-sm">
+          <Icon className="h-3.5 w-3.5" />
+        </div>
+        <div>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+            {title}
+          </p>
+          <p className="text-[11px] text-muted-foreground">3 takeaways</p>
+        </div>
+      </div>
+      <div className="space-y-2">
+        {displayItems.map((item, index) => (
+          <div
+            key={`${title}-${index}`}
+            className="rounded-2xl border border-border/45 bg-[rgba(252,248,242,0.88)] px-3 py-2.5"
+          >
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+              {index + 1}
+            </p>
+            <p className="mt-1 text-[12px] leading-5 text-muted-foreground">{item}</p>
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 
