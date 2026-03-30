@@ -721,10 +721,15 @@ export function IntakeWorkspace() {
         body: JSON.stringify(payload),
       });
 
-      const data = await response.json();
+      let data: { error?: string } = {};
+      try {
+        data = await response.json();
+      } catch {
+        // Non-JSON response (e.g. 413 Request Entity Too Large)
+      }
 
       if (!response.ok) {
-        throw new Error(data.error || 'Review failed');
+        throw new Error(data.error || `Request failed (${response.status})`);
       }
 
       const latestSummary = mapReportToResultSummary(data as UXReport);
@@ -1739,22 +1744,34 @@ function hasValidInput({
 
 function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
-    const reader = new FileReader();
+    const img = new window.Image();
+    const objectUrl = URL.createObjectURL(file);
 
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        resolve(reader.result);
+    img.onload = () => {
+      const MAX_WIDTH = 1280;
+      const scale = Math.min(1, MAX_WIDTH / img.width);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(img.width * scale);
+      canvas.height = Math.round(img.height * scale);
+      const ctx = canvas.getContext('2d');
+
+      if (!ctx) {
+        URL.revokeObjectURL(objectUrl);
+        reject(new Error(`Could not process screenshot "${file.name}".`));
         return;
       }
 
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(objectUrl);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+
+    img.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
       reject(new Error(`Could not read screenshot "${file.name}".`));
     };
 
-    reader.onerror = () => {
-      reject(new Error(`Could not read screenshot "${file.name}".`));
-    };
-
-    reader.readAsDataURL(file);
+    img.src = objectUrl;
   });
 }
 

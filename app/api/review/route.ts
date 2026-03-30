@@ -198,6 +198,7 @@ function normalizeBase64Screenshot(
   return {
     url: `screenshot://${index + 1}`,
     screenshotBase64: base64,
+    mimeType,
     extractedContent: `Step ${index + 1} of the screenshot flow. Static UI screenshot only. No live DOM extraction or browser navigation data was available. Infer likely user intent, clarity, friction, and next action from the visible interface.`,
     pageTitle: `Screenshot flow step ${index + 1}`,
     timestamp: Date.now() + index,

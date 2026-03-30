@@ -21,6 +21,7 @@ export interface GeneratedPersona extends Persona {
 export interface ScreenCapture {
   url: string;
   screenshotBase64: string;
+  mimeType?: string;
   extractedContent: string;
   pageTitle: string;
   timestamp: number;

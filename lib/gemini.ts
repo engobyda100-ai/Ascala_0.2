@@ -242,7 +242,7 @@ export async function analyzeApp(
     for (const screen of screens) {
       parts.push({
         inlineData: {
-          mimeType: 'image/png',
+          mimeType: screen.mimeType ?? 'image/png',
           data: screen.screenshotBase64,
         },
       });
