@@ -1779,7 +1779,7 @@ function readVideoFrameAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const objectUrl = URL.createObjectURL(file);
     const video = document.createElement('video');
-    video.preload = 'metadata';
+    video.preload = 'auto';
     video.muted = true;
     video.playsInline = true;
     video.src = objectUrl;
@@ -1790,11 +1790,13 @@ function readVideoFrameAsDataUrl(file: File): Promise<string> {
       video.load();
     };
 
-    video.onloadeddata = () => {
+    const captureFrame = () => {
       try {
+        const MAX_WIDTH = 1280;
+        const scale = Math.min(1, MAX_WIDTH / (video.videoWidth || 1280));
         const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth || 1280;
-        canvas.height = video.videoHeight || 720;
+        canvas.width = Math.round((video.videoWidth || 1280) * scale);
+        canvas.height = Math.round((video.videoHeight || 720) * scale);
         const context = canvas.getContext('2d');
 
         if (!context) {
@@ -1804,14 +1806,20 @@ function readVideoFrameAsDataUrl(file: File): Promise<string> {
         }
 
         context.drawImage(video, 0, 0, canvas.width, canvas.height);
-        const result = canvas.toDataURL('image/png');
         cleanup();
-        resolve(result);
+        resolve(canvas.toDataURL('image/jpeg', 0.85));
       } catch {
         cleanup();
         reject(new Error(`Could not read video "${file.name}".`));
       }
     };
+
+    video.onloadedmetadata = () => {
+      // Seek to 10% in (or 0.5s minimum) so we get a real frame, not a blank
+      video.currentTime = Math.min(Math.max(video.duration * 0.1, 0.5), video.duration);
+    };
+
+    video.onseeked = captureFrame;
 
     video.onerror = () => {
       cleanup();

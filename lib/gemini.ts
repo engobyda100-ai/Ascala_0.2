@@ -199,7 +199,7 @@ export async function analyzeApp(
       model: 'gemini-2.5-pro',
       generationConfig: {
         temperature: 0.4,
-        maxOutputTokens: 8192,
+        maxOutputTokens: 32768,
         responseMimeType: 'application/json',
       },
       safetySettings,
