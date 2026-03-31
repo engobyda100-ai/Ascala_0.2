@@ -1,4 +1,6 @@
-import { Stagehand } from '@browserbasehq/stagehand';
+import Steel from 'steel-sdk';
+import { chromium, type Browser, type Page } from 'playwright';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import type {
   BrowserExplorationAttempt,
   BrowserExplorationObjective,
@@ -31,22 +33,159 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// ---------------------------------------------------------------------------
+// Gemini Vision helpers (replace Stagehand's act / observe / extract)
+// ---------------------------------------------------------------------------
+
+function getGeminiModel(apiKey: string) {
+  const genAI = new GoogleGenerativeAI(apiKey);
+  return genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+}
+
+async function screenshotAsBase64(page: Page): Promise<string> {
+  const buffer = await page.screenshot();
+  return buffer.toString('base64');
+}
+
+/**
+ * AI-powered page action. Takes a screenshot, asks Gemini what Playwright
+ * action to perform, then executes it. Falls back to a gentle scroll on any
+ * failure (most act() calls in this codebase are scroll actions).
+ */
+async function geminiAct(
+  page: Page,
+  action: string,
+  geminiApiKey: string,
+): Promise<void> {
+  try {
+    const base64 = await screenshotAsBase64(page);
+    const model = getGeminiModel(geminiApiKey);
+
+    const result = await model.generateContent([
+      {
+        inlineData: { mimeType: 'image/png', data: base64 },
+      },
+      {
+        text: `You are a browser automation assistant. Given the screenshot of the current page, determine the single best Playwright action to perform for this instruction:
+
+"${action}"
+
+Respond with ONLY a JSON object (no markdown, no code fences) in one of these formats:
+- {"action":"scroll","x":0,"y":400}
+- {"action":"click","x":<number>,"y":<number>}
+- {"action":"type","x":<number>,"y":<number>,"text":"<string>"}
+
+Where x,y are pixel coordinates relative to the viewport. Prefer scroll if the instruction mentions scrolling. If unsure, default to scroll.`,
+      },
+    ]);
+
+    const text = result.response.text().trim();
+    const cleaned = text.replace(/```(?:json)?\s*/g, '').replace(/```\s*/g, '').trim();
+    const parsed = JSON.parse(cleaned);
+
+    if (parsed.action === 'click') {
+      await page.mouse.click(parsed.x, parsed.y);
+    } else if (parsed.action === 'type') {
+      await page.mouse.click(parsed.x, parsed.y);
+      await page.keyboard.type(parsed.text || '');
+    } else {
+      await page.evaluate(
+        ({ x, y }) => window.scrollBy(x, y),
+        { x: parsed.x ?? 0, y: parsed.y ?? 400 },
+      );
+    }
+  } catch {
+    // Safe fallback: gentle scroll down
+    await page.evaluate(() => window.scrollBy(0, 400));
+  }
+}
+
+/**
+ * AI-powered element observation. Takes a screenshot, asks Gemini to identify
+ * UI elements matching a natural-language instruction. Returns an array of
+ * candidate descriptions (empty array if none found).
+ */
+async function geminiObserve(
+  page: Page,
+  instruction: string,
+  geminiApiKey: string,
+): Promise<{ description: string }[]> {
+  try {
+    const base64 = await screenshotAsBase64(page);
+    const model = getGeminiModel(geminiApiKey);
+
+    const result = await model.generateContent([
+      {
+        inlineData: { mimeType: 'image/png', data: base64 },
+      },
+      {
+        text: `You are a UI analysis assistant. Given the screenshot, identify all visible UI elements that match this instruction:
+
+"${instruction}"
+
+Respond with ONLY a JSON array (no markdown, no code fences) of objects:
+[{"description":"<what the element is and where it appears>"}]
+
+If no matching elements are found, respond with an empty array: []`,
+      },
+    ]);
+
+    const text = result.response.text().trim();
+    const cleaned = text.replace(/```(?:json)?\s*/g, '').replace(/```\s*/g, '').trim();
+    return JSON.parse(cleaned);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * AI-powered content extraction. Takes a screenshot (or reuses one), asks
+ * Gemini to extract structured text content per the instruction.
+ */
+async function geminiExtract(
+  page: Page,
+  instruction: string,
+  geminiApiKey: string,
+  existingScreenshotBase64?: string,
+): Promise<string> {
+  try {
+    const base64 = existingScreenshotBase64 || await screenshotAsBase64(page);
+    const model = getGeminiModel(geminiApiKey);
+
+    const result = await model.generateContent([
+      {
+        inlineData: { mimeType: 'image/png', data: base64 },
+      },
+      {
+        text: `You are a content extraction assistant. Given the screenshot, extract the following:
+
+"${instruction}"
+
+Respond with ONLY the extracted text content. Be thorough and include all relevant visible text. Do not wrap in JSON or code fences.`,
+      },
+    ]);
+
+    return result.response.text().trim();
+  } catch {
+    return '';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Main browser session
+// ---------------------------------------------------------------------------
+
 export async function runBrowserSession(
   appUrl: string,
   persona: Persona,
   options: BrowserSessionOptions = {}
 ): Promise<BrowserSessionResult> {
-  const browserbaseApiKey = process.env.BROWSERBASE_API_KEY;
-  const browserbaseProjectId = process.env.BROWSERBASE_PROJECT_ID;
+  const steelApiKey = process.env.STEEL_API_KEY;
   const geminiApiKey =
     process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
-  if (!browserbaseApiKey) {
-    throw new Error('Missing BROWSERBASE_API_KEY');
-  }
-
-  if (!browserbaseProjectId) {
-    throw new Error('Missing BROWSERBASE_PROJECT_ID');
+  if (!steelApiKey) {
+    throw new Error('Missing STEEL_API_KEY');
   }
 
   if (!geminiApiKey) {
@@ -70,8 +209,7 @@ export async function runBrowserSession(
     try {
       return await runBrowserSessionAttempt({
         appUrl,
-        browserbaseApiKey,
-        browserbaseProjectId,
+        steelApiKey,
         geminiApiKey,
         objectivePlans,
         figmaLinkType,
@@ -138,8 +276,7 @@ export async function runBrowserSession(
 
 async function runBrowserSessionAttempt({
   appUrl,
-  browserbaseApiKey,
-  browserbaseProjectId,
+  steelApiKey,
   geminiApiKey,
   objectivePlans,
   figmaLinkType,
@@ -147,34 +284,28 @@ async function runBrowserSessionAttempt({
   persona,
 }: {
   appUrl: string;
-  browserbaseApiKey: string;
-  browserbaseProjectId: string;
+  steelApiKey: string;
   geminiApiKey: string;
   objectivePlans: ObjectivePlan[];
   figmaLinkType: FigmaLinkType | null;
   isFigmaSimulation: boolean;
   persona: Persona;
 }): Promise<BrowserSessionResult> {
-  const stagehand = new Stagehand({
-    env: 'BROWSERBASE',
-    apiKey: browserbaseApiKey,
-    disablePino: true,
-    logger: () => {},
-    projectId: browserbaseProjectId,
-    modelName: 'google/gemini-2.5-flash',
-    modelClientOptions: {
-      apiKey: geminiApiKey,
-    },
-    useAPI: false,
-    verbose: 0,
-  });
+  const steelClient = new Steel({ steelAPIKey: steelApiKey });
+  const session = await steelClient.sessions.create({ useProxy: true });
+
+  let browser: Browser | undefined;
 
   const screenshots: ScreenCapture[] = [];
   const attempts: BrowserExplorationAttempt[] = [];
 
   try {
-    await stagehand.init();
-    const page = stagehand.page;
+    browser = await chromium.connectOverCDP(
+      `wss://connect.steel.dev?apiKey=${steelApiKey}&sessionId=${session.id}`
+    );
+
+    const context = browser.contexts()[0];
+    const page = context.pages()[0] || await context.newPage();
 
     if (isFigmaSimulation) {
       console.log('[Figma] Starting load', {
@@ -194,6 +325,7 @@ async function runBrowserSessionAttempt({
     screenshots.push(
       await captureScreen({
         page,
+        geminiApiKey,
         captureLabel: isFigmaSimulation ? 'Figma prototype overview' : 'Landing page',
         extractInstruction:
           isFigmaSimulation
@@ -204,15 +336,17 @@ async function runBrowserSessionAttempt({
 
     if (isFigmaSimulation) {
       try {
-        await page.act({
-          action:
-            'Scroll or pan gently to reveal more of the visible Figma prototype without attempting navigation or clicking into flows.',
-        });
+        await geminiAct(
+          page,
+          'Scroll or pan gently to reveal more of the visible Figma prototype without attempting navigation or clicking into flows.',
+          geminiApiKey,
+        );
         await sleep(1500);
 
         screenshots.push(
           await captureScreen({
             page,
+            geminiApiKey,
             captureLabel: 'Figma prototype after scroll',
             extractInstruction:
               `Extract all additional visible Figma prototype text after scrolling or panning, including frame labels, calls to action, form fields, progress cues, and screen-to-screen hints. ${buildPersonaExtractionLens(persona)}`,
@@ -225,19 +359,22 @@ async function runBrowserSessionAttempt({
         });
       }
     } else {
-      await page.act({
-        action: 'Scroll down the page slowly to see more content',
-      });
+      await geminiAct(
+        page,
+        'Scroll down the page slowly to see more content',
+        geminiApiKey,
+      );
       await sleep(1500);
 
       screenshots.push(
         await captureScreen({
           page,
-        captureLabel: 'Landing page after scroll',
-        extractInstruction:
-          `Extract all visible text content after scrolling, including features, testimonials, pricing, FAQ, footer, and trust signals. ${buildPersonaExtractionLens(persona)}`,
-      })
-    );
+          geminiApiKey,
+          captureLabel: 'Landing page after scroll',
+          extractInstruction:
+            `Extract all visible text content after scrolling, including features, testimonials, pricing, FAQ, footer, and trust signals. ${buildPersonaExtractionLens(persona)}`,
+        })
+      );
     }
 
     if (isFigmaSimulation) {
@@ -263,6 +400,7 @@ async function runBrowserSessionAttempt({
         attempts.push(
           await runObjectiveAttempt({
             appUrl,
+            geminiApiKey,
             objective,
             page,
             screenshots,
@@ -286,9 +424,16 @@ async function runBrowserSessionAttempt({
     };
   } finally {
     try {
-      await stagehand.close();
+      if (browser) {
+        await browser.close();
+      }
     } catch (error) {
-      console.warn('Browser session cleanup failed:', error);
+      console.warn('Browser close failed:', error);
+    }
+    try {
+      await steelClient.sessions.release(session.id);
+    } catch (error) {
+      console.warn('Steel session release failed:', error);
     }
   }
 }
@@ -362,12 +507,13 @@ function isRetryableBrowserSessionError(message: string) {
   const compact = message.replace(/\s+/g, ' ').trim().toLowerCase();
 
   return (
-    compact.includes('browser context is undefined') ||
+    compact.includes('browser has been closed') ||
     compact.includes('cdp connection') ||
+    compact.includes('connect econnrefused') ||
     compact.includes('invalid session id') ||
-    compact.includes('target closed before cdp session could attach') ||
     compact.includes('session') ||
-    compact.includes('websocket')
+    compact.includes('websocket') ||
+    compact.includes('target closed')
   );
 }
 
@@ -380,7 +526,7 @@ async function loadInitialPage({
   appUrl: string;
   figmaLinkType: FigmaLinkType | null;
   isFigmaSimulation: boolean;
-  page: Stagehand['page'];
+  page: Page;
 }) {
   if (!isFigmaSimulation) {
     await page.goto(appUrl, { waitUntil: 'networkidle', timeout: 30000 });
@@ -396,13 +542,15 @@ async function loadInitialPage({
 
 async function runObjectiveAttempt({
   appUrl,
+  geminiApiKey,
   objective,
   page,
   screenshots,
 }: {
   appUrl: string;
+  geminiApiKey: string;
   objective: ObjectivePlan;
-  page: Stagehand['page'];
+  page: Page;
   screenshots: ScreenCapture[];
 }): Promise<BrowserExplorationAttempt> {
   await page.goto(appUrl, { waitUntil: 'networkidle', timeout: 30000 });
@@ -418,9 +566,7 @@ async function runObjectiveAttempt({
   };
 
   try {
-    const candidates = await page.observe({
-      instruction: objective.observeInstruction,
-    });
+    const candidates = await geminiObserve(page, objective.observeInstruction, geminiApiKey);
 
     if (!candidates || candidates.length === 0) {
       return {
@@ -432,13 +578,12 @@ async function runObjectiveAttempt({
     }
 
     try {
-      await page.act({
-        action: objective.actionInstruction,
-      });
+      await geminiAct(page, objective.actionInstruction, geminiApiKey);
       await sleep(1800);
 
       const screen = await captureScreen({
         page,
+        geminiApiKey,
         captureLabel: `${objective.label} evidence`,
         extractInstruction: objective.extractInstruction,
         relatedTestIds: [objective.testId],
@@ -462,6 +607,7 @@ async function runObjectiveAttempt({
 
       const fallbackScreen = await captureScreen({
         page,
+        geminiApiKey,
         captureLabel: `${objective.label} fallback evidence`,
         extractInstruction: objective.extractInstruction,
         relatedTestIds: [objective.testId],
@@ -495,29 +641,34 @@ async function runObjectiveAttempt({
 
 async function captureScreen({
   page,
+  geminiApiKey,
   captureLabel,
   extractInstruction,
   relatedTestIds,
   observation,
 }: {
-  page: Stagehand['page'];
+  page: Page;
+  geminiApiKey: string;
   captureLabel: string;
   extractInstruction: string;
   relatedTestIds?: ValidationTestId[];
   observation?: string;
 }): Promise<ScreenCapture> {
   const screenshotBuffer = await page.screenshot();
-  const extracted = await page.extract({
-    instruction: extractInstruction,
-  });
+  const screenshotBase64 = screenshotBuffer.toString('base64');
+
+  // Reuse the screenshot we already took to avoid a redundant capture
+  const extractedContent = await geminiExtract(
+    page,
+    extractInstruction,
+    geminiApiKey,
+    screenshotBase64,
+  );
 
   return {
     url: page.url(),
-    screenshotBase64: screenshotBuffer.toString('base64'),
-    extractedContent:
-      typeof extracted?.extraction === 'string'
-        ? extracted.extraction
-        : JSON.stringify(extracted ?? {}),
+    screenshotBase64,
+    extractedContent,
     pageTitle: await safePageTitle(page),
     timestamp: Date.now(),
     captureLabel,
@@ -684,7 +835,7 @@ function detectFigmaLinkType(url: string): FigmaLinkType {
   return 'unknown';
 }
 
-async function safePageTitle(page: Stagehand['page']) {
+async function safePageTitle(page: Page) {
   try {
     return await page.title();
   } catch {

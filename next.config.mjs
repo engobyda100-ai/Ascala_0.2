@@ -1,7 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   experimental: {
-    serverComponentsExternalPackages: ["@browserbasehq/stagehand"],
+    serverComponentsExternalPackages: ["playwright", "steel-sdk"],
   },
 };
 
