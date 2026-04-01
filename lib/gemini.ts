@@ -253,14 +253,19 @@ export async function analyzeApp(
 
     const result = await model.generateContent(parts);
     const response = result.response;
-    const text = response.text();
+    const rawText = response.text();
 
-    if (!text) {
+    if (!rawText) {
       throw new Error('Gemini returned empty response');
     }
 
+    const cleanedText = rawText
+      .replace(/```(?:json)?\s*/g, '')
+      .replace(/```\s*/g, '')
+      .trim();
+
     return normalizeAnalysisResult(
-      JSON.parse(text) as UXAnalysis,
+      JSON.parse(cleanedText) as UXAnalysis,
       options.selectedTestIds,
       options.browserExplorationSummary
     );
@@ -336,7 +341,12 @@ export async function generateIntakeCoachResponse(
       throw new Error('Gemini returned empty response');
     }
 
-    return normalizeChatAgentResponse(JSON.parse(text) as ChatAgentResponse);
+    const cleanedChatText = text
+      .replace(/```(?:json)?\s*/g, '')
+      .replace(/```\s*/g, '')
+      .trim();
+
+    return normalizeChatAgentResponse(JSON.parse(cleanedChatText) as ChatAgentResponse);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
 
@@ -677,7 +687,8 @@ function parsePersonaResponse(rawText: string, inputMode?: InputMode): Persona {
   console.log('Raw Gemini persona response:', rawText);
 
   try {
-    const parsed = JSON.parse(rawText) as Partial<Persona>;
+    const cleaned = rawText.replace(/```(?:json)?\s*/g, '').replace(/```\s*/g, '').trim();
+    const parsed = JSON.parse(cleaned) as Partial<Persona>;
     return normalizePersona(parsed, inputMode);
   } catch (error) {
     console.error('Persona JSON parse failed. Using fallback persona.', {
@@ -697,7 +708,8 @@ function parseGeneratedPersonasResponse(
   console.log('Raw Gemini persona set response:', rawText);
 
   try {
-    const parsed = JSON.parse(rawText) as
+    const cleaned = rawText.replace(/```(?:json)?\s*/g, '').replace(/```\s*/g, '').trim();
+    const parsed = JSON.parse(cleaned) as
       | { personas?: Partial<Persona>[] }
       | Partial<Persona>[];
     const personaCandidates = Array.isArray(parsed)
