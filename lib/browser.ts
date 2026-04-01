@@ -292,7 +292,7 @@ async function runBrowserSessionAttempt({
   persona: Persona;
 }): Promise<BrowserSessionResult> {
   const steelClient = new Steel({ steelAPIKey: steelApiKey });
-  const session = await steelClient.sessions.create({ useProxy: true });
+  const session = await steelClient.sessions.create();
 
   let browser: Browser | undefined;
 
