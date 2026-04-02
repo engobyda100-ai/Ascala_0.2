@@ -5,11 +5,15 @@ import { DotLottieReact } from '@lottiefiles/dotlottie-react';
 import {
   Accessibility,
   ArrowLeft,
+  Copy,
+  Download,
   Expand,
   FileSearch,
+  Hand,
   Rocket,
   ShieldCheck,
   TrendingUp,
+  Zap,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
@@ -241,14 +245,11 @@ function CompletedResultsState({
     <div className="space-y-3">
       <section className="rounded-2xl border border-border/55 bg-white/42 px-3 py-3">
         <div className="flex items-start justify-between gap-4">
-          <div>
+          <div className="flex items-center gap-3">
             <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               Overall score
             </p>
-            <p className="mt-1 text-3xl font-semibold tracking-tight">
-              {resultSummary.overallScore}
-              <span className="ml-1 text-base text-muted-foreground">/100</span>
-            </p>
+            <ScoreRing score={resultSummary.overallScore} label="Overall score" />
           </div>
 
           {completedTests.length > 0 ? (
@@ -386,19 +387,20 @@ function ReportReaderSurface({
           ) : null}
 
           <section className="flex items-end justify-between gap-4 border-b border-border/50 pb-4">
-            <div>
+            <div className="flex items-center gap-3">
               <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 Test score
               </p>
-              <p className="mt-1 text-3xl font-semibold tracking-tight">
-                {test.score || 0}
-                <span className="ml-1 text-base text-muted-foreground">/100</span>
-              </p>
+              <ScoreRing score={test.score || 0} label="Test score" />
             </div>
-            <div className="flex items-center gap-2 rounded-full border border-border/55 bg-white/80 px-3 py-1.5 text-[11px] text-muted-foreground shadow-sm">
-              <FileSearch className="h-3.5 w-3.5" />
-              Ready for review
-            </div>
+            <button
+              type="button"
+              onClick={() => exportWorkingChecklist(test)}
+              className="flex items-center gap-2 rounded-full border border-border/55 bg-white/80 px-3 py-1.5 text-[11px] text-foreground shadow-sm transition-colors hover:bg-white"
+            >
+              <Download className="h-3.5 w-3.5" />
+              Export working checklist
+            </button>
           </section>
 
           <section className="space-y-1.5">
@@ -427,14 +429,11 @@ function ExpandedReaderOverview({
   return (
     <section className="space-y-4 border-b border-border/50 pb-5">
       <div className="flex items-end justify-between gap-4">
-        <div>
+        <div className="flex items-center gap-3">
           <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
             Overall score
           </p>
-          <p className="mt-1 text-3xl font-semibold tracking-tight">
-            {resultSummary.overallScore}
-            <span className="ml-1 text-base text-muted-foreground">/100</span>
-          </p>
+          <ScoreRing score={resultSummary.overallScore} label="Overall score" />
         </div>
         <p className="max-w-md text-right text-[12px] leading-5 text-muted-foreground">
           Enlarged reading mode for the current validation output. The selected test report
@@ -562,8 +561,8 @@ function QuoteCard({
       className={cn(
         'rounded-[24px] border px-3 py-3',
         tone === 'positive'
-          ? 'border-[rgba(216,164,74,0.35)] bg-[rgba(255,248,236,0.88)]'
-          : 'border-border/45 bg-white/55'
+          ? 'border-[rgba(34,197,94,0.5)] bg-[rgba(240,253,244,0.92)]'
+          : 'border-[rgba(239,68,68,0.45)] bg-[rgba(254,242,242,0.9)]'
       )}
     >
       <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -581,8 +580,19 @@ function ActionableChangeCard({
 }: {
   change: ResultActionableChange;
 }) {
+  const handleCopyImplementationPrompt = async () => {
+    const prompt = buildImplementationPrompt(change);
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(prompt);
+      }
+    } catch {
+      // no-op fallback for environments that block clipboard writes
+    }
+  };
+
   return (
-    <section className="rounded-[24px] border border-border/45 bg-white/55 px-3 py-3">
+    <section className={cn('rounded-[24px] border bg-white/55 px-3 py-3', getPriorityBorderClass(change.priority))}>
       <div className="flex items-center gap-2">
         <span className={cn('h-2.5 w-2.5 rounded-full', getPriorityDotClass(change.priority))} />
         <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -590,8 +600,62 @@ function ActionableChangeCard({
         </p>
       </div>
       <p className="mt-2 text-[12px] leading-5 text-muted-foreground">{change.text}</p>
+      <button
+        type="button"
+        onClick={handleCopyImplementationPrompt}
+        className="mt-3 inline-flex items-center gap-1.5 rounded-full border border-border/55 bg-white/80 px-2.5 py-1.5 text-[11px] font-medium text-foreground transition-colors hover:bg-white"
+      >
+        <Copy className="h-3.5 w-3.5" />
+        Copy implementation prompt
+      </button>
+      <button
+        type="button"
+        onClick={handleCopyImplementationPrompt}
+        className="mt-2 inline-flex items-center gap-1.5 rounded-full border border-[#C26A43]/45 bg-[#C26A43] px-2.5 py-1.5 text-[11px] font-medium text-white shadow-sm transition-colors hover:bg-[#B95F39]"
+      >
+        Send to my coding agent
+      </button>
     </section>
   );
+}
+
+function buildImplementationPrompt(change: ResultActionableChange) {
+  return [
+    'Implement this UX improvement in the app:',
+    `Priority: ${formatPriorityLabel(change.priority)}`,
+    `Requested change: ${change.text}`,
+    'Return exactly:',
+    '1) files changed',
+    '2) implementation summary',
+    '3) test plan',
+  ].join('\n');
+}
+
+function exportWorkingChecklist(test: ValidationResultTestSummary) {
+  const checklistLines = [
+    `${test.label} - Working checklist`,
+    '',
+    `Summary: ${test.summary}`,
+    '',
+    'Actionable changes:',
+    ...test.actionableChanges.map(
+      (change, index) =>
+        `${index + 1}. [${formatPriorityLabel(change.priority)}] ${change.text}`
+    ),
+    '',
+    'Key insights:',
+    ...test.keyInsights.map((insight, index) => `${index + 1}. ${insight}`),
+  ];
+  const content = checklistLines.join('\n');
+  const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement('a');
+  anchor.href = objectUrl;
+  anchor.download = `${test.id}-working-checklist.txt`;
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  URL.revokeObjectURL(objectUrl);
 }
 
 function formatQuoteText(quote: string) {
@@ -621,16 +685,60 @@ function getPriorityDotClass(priority: ResultActionPriority) {
   }
 }
 
+function ScoreRing({
+  score,
+  label,
+}: {
+  score: number;
+  label: string;
+}) {
+  const normalizedScore = Math.max(0, Math.min(100, Math.round(score)));
+  const progressAngle = Math.round((normalizedScore / 100) * 360);
+
+  return (
+    <div
+      className="relative flex h-20 w-20 items-center justify-center rounded-full"
+      style={{
+        background: `conic-gradient(rgba(194,106,67,0.95) ${progressAngle}deg, rgba(214,204,191,0.45) ${progressAngle}deg 360deg)`,
+      }}
+      role="img"
+      aria-label={`${label}: ${normalizedScore} out of 100`}
+    >
+      <div className="flex h-16 w-16 flex-col items-center justify-center rounded-full border border-border/45 bg-[rgba(252,248,242,0.98)] shadow-sm">
+        <span className="text-[18px] font-semibold leading-none">{normalizedScore}</span>
+        <span className="mt-0.5 text-[9px] text-muted-foreground">/100</span>
+      </div>
+    </div>
+  );
+}
+
+function getPriorityBorderClass(priority: ResultActionPriority) {
+  switch (priority) {
+    case 'urgent':
+      return 'border-[rgba(208,108,72,0.65)]';
+    case 'important':
+      return 'border-[rgba(216,164,74,0.7)]';
+    case 'later':
+      return 'border-[rgba(132,142,158,0.7)]';
+    default:
+      return 'border-border/45';
+  }
+}
+
 function getTestIcon(testId: ValidationResultTestSummary['id']) {
   switch (testId) {
     case 'engagement-habit-formation':
       return TrendingUp;
+    case 'activation':
+      return Zap;
     case 'onboarding':
       return Rocket;
     case 'accessibility':
       return Accessibility;
     case 'compliance':
       return ShieldCheck;
+    case 'thumb-zones':
+      return Hand;
     default:
       return FileSearch;
   }

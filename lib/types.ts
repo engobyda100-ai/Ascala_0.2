@@ -68,9 +68,11 @@ export interface ResultNarrativeBlocks {
 
 export type ValidationTestId =
   | 'engagement-habit-formation'
+  | 'activation'
   | 'onboarding'
   | 'accessibility'
-  | 'compliance';
+  | 'compliance'
+  | 'thumb-zones';
 
 export interface ValidationTestCatalogItem {
   id: ValidationTestId;
@@ -84,6 +86,10 @@ export const VALIDATION_TEST_CATALOG: ValidationTestCatalogItem[] = [
     label: 'Engagement',
   },
   {
+    id: 'activation',
+    label: 'Activation',
+  },
+  {
     id: 'onboarding',
     label: 'Onboarding',
   },
@@ -94,6 +100,10 @@ export const VALIDATION_TEST_CATALOG: ValidationTestCatalogItem[] = [
   {
     id: 'compliance',
     label: 'Compliance',
+  },
+  {
+    id: 'thumb-zones',
+    label: 'Thumb Zones',
   },
 ];
 
@@ -302,7 +312,10 @@ export interface ValidationSuiteItem {
   status: ValidationItemStatus;
 }
 
-export type ValidationTestGroupKey = 'selected-validation-tests';
+export type ValidationTestGroupKey =
+  | 'selected-validation-tests'
+  | 'general-tests'
+  | 'persona-based-tests';
 
 export interface ValidationTestDefinition {
   id: ValidationTestId;

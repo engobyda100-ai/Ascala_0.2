@@ -55,9 +55,18 @@ function createValidationStages(selectedPersona: GeneratedPersona | null) {
 
 const VALIDATION_TEST_GROUPS: ValidationTestGroup[] = [
   {
-    id: 'selected-validation-tests',
-    label: 'Choose tests to run',
-    tests: VALIDATION_TEST_CATALOG,
+    id: 'general-tests',
+    label: 'General Tests',
+    tests: VALIDATION_TEST_CATALOG.filter((test) =>
+      ['compliance', 'accessibility', 'onboarding', 'thumb-zones'].includes(test.id)
+    ),
+  },
+  {
+    id: 'persona-based-tests',
+    label: 'Persona-Based Tests',
+    tests: VALIDATION_TEST_CATALOG.filter((test) =>
+      ['engagement-habit-formation', 'activation'].includes(test.id)
+    ),
   },
 ];
 
@@ -973,7 +982,7 @@ export function IntakeWorkspace() {
 
             <div
               className={cn(
-                'min-h-0 rounded-[22px] border border-border/40 bg-white/48 shadow-[0_28px_70px_-32px_rgba(68,48,29,0.72)] backdrop-blur-sm workspace-panel-reveal transition-all duration-700 min-[1280px]:will-change-transform',
+                'min-h-0 rounded-[24px] border border-border/40 bg-white/48 shadow-[0_28px_70px_-32px_rgba(68,48,29,0.72)] backdrop-blur-sm workspace-panel-reveal transition-all duration-700 min-[1280px]:will-change-transform',
                 activeWorkspacePanel === 'studio' ? 'flex flex-1 flex-col' : 'hidden',
                 'min-[1280px]:block',
                 hasRevealedWorkspacePanels

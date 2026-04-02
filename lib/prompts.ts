@@ -388,7 +388,7 @@ Return a JSON object with exactly this structure:
 }
 
 Rules:
-- Use only these test ids if recommending tests: engagement-habit-formation, onboarding, accessibility, compliance.
+- Use only these test ids if recommending tests: engagement-habit-formation, activation, onboarding, accessibility, compliance, thumb-zones.
 - recommendedTestIds should be omitted or empty if you do not have a strong recommendation.
 - intakeUpdates should only contain fields you genuinely improved or clarified.
 - checklistItems should be practical, concrete, and short.

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { SendHorizontal } from 'lucide-react';
+import { Mic, SendHorizontal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Textarea } from '@/components/ui/textarea';
@@ -56,13 +56,18 @@ export function AgentChatPanel({
 
   return (
     <Card className="flex h-full min-h-0 flex-col overflow-hidden rounded-[24px] border-border/45 bg-white/58 shadow-[0_28px_70px_-32px_rgba(68,48,29,0.72)] backdrop-blur-sm">
-      <CardHeader className="min-h-[64px] justify-center border-b border-border/45 px-6 py-3">
+      <CardHeader className="min-h-[64px] justify-center border-b border-border/45 bg-[#e8dfd3] px-4 py-3">
         <div className="flex items-center justify-between gap-4">
-          <div className="space-y-0.5">
-            <CardTitle className="text-base font-semibold">Ascala Intelligence</CardTitle>
-            <div className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
-              <span className="text-[11px] font-medium text-muted-foreground">Online</span>
+          <div className="flex items-center gap-2">
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-black text-xs font-semibold text-white">
+              2
+            </span>
+            <div className="space-y-0.5">
+              <CardTitle className="text-base font-semibold">Ascala Intelligence</CardTitle>
+              <div className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" aria-hidden="true" />
+                <span className="text-[11px] font-medium text-muted-foreground">Online</span>
+              </div>
             </div>
           </div>
           <div className="text-right text-[11px] leading-4 text-muted-foreground">
@@ -162,8 +167,17 @@ export function AgentChatPanel({
                 }
               }}
               placeholder="Describe the product, share important context from uploaded assets, or ask which validation tests Ascala should run next."
-              className="min-h-[64px] resize-none rounded-[24px] border-border/45 bg-white/76 px-4 py-3 pr-16 shadow-sm"
+              className="min-h-[64px] resize-none rounded-[24px] border-border/45 bg-white/76 px-4 py-3 pr-28 shadow-sm"
             />
+            <Button
+              type="button"
+              disabled
+              size="icon"
+              className="pointer-events-none absolute bottom-3 right-14 h-10 w-10 rounded-full border border-border/55 bg-white/55 text-muted-foreground opacity-70 blur-[0.6px] shadow-sm"
+              aria-label="Voice input coming soon"
+            >
+              <Mic className="h-4 w-4" />
+            </Button>
             <Button
               type="submit"
               disabled={!draftMessage.trim() || isResponding}

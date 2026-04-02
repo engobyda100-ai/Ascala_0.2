@@ -50,8 +50,13 @@ export function AssetsPanel({
 
   return (
     <Card className="flex h-full min-h-0 flex-col overflow-hidden rounded-[22px] border-border/45 bg-white/58 shadow-[0_28px_70px_-32px_rgba(68,48,29,0.72)] backdrop-blur-sm">
-      <CardHeader className="min-h-[64px] justify-center border-b border-border/45 px-4 py-3">
-        <CardTitle className="text-base font-semibold">Project Assets</CardTitle>
+      <CardHeader className="min-h-[64px] justify-center border-b border-border/45 bg-[#e8dfd3] px-4 py-3">
+        <CardTitle className="flex items-center gap-2 text-base font-semibold">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-black text-xs font-semibold text-white">
+            1
+          </span>
+          <span>Project Assets</span>
+        </CardTitle>
       </CardHeader>
       <CardContent className="flex-1 space-y-4 overflow-y-auto px-4 py-3.5">
         <section className="space-y-3">
@@ -311,6 +316,29 @@ export function AssetsPanel({
                 </div>
               </div>
             </div>
+          </div>
+        </section>
+
+        <div className="border-t border-border/45 pt-3" />
+
+        <section className="space-y-2.5 pb-0.5">
+          <h3 className="text-[13px] font-semibold">Connect to your coding agent</h3>
+          <div className="flex items-center gap-2 rounded-2xl border border-border/45 bg-white/38 px-3 py-2.5 blur-[0.6px] opacity-75">
+            {['/api1.png', '/api2.png', '/api3.png', '/api4.png'].map((src, index) => (
+              <div
+                key={`${src}-${index}`}
+                className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-xl border border-border/50 bg-white/70"
+              >
+                <Image
+                  alt={`Coding agent provider ${index + 1}`}
+                  src={src}
+                  width={28}
+                  height={28}
+                  className="h-7 w-7 object-contain"
+                  unoptimized
+                />
+              </div>
+            ))}
           </div>
         </section>
       </CardContent>

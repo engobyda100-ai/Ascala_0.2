@@ -1,4 +1,4 @@
-import Steel from 'steel-sdk';
+import Browserbase from '@browserbasehq/sdk';
 import { chromium, type Browser, type Page } from 'playwright';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type {
@@ -180,12 +180,13 @@ export async function runBrowserSession(
   persona: Persona,
   options: BrowserSessionOptions = {}
 ): Promise<BrowserSessionResult> {
-  const steelApiKey = process.env.STEEL_API_KEY;
+  const browserbaseApiKey = process.env.BROWSERBASE_API_KEY;
+  const browserbaseProjectId = process.env.BROWSERBASE_PROJECT_ID;
   const geminiApiKey =
     process.env.GEMINI_API_KEY || process.env.GOOGLE_GENERATIVE_AI_API_KEY;
 
-  if (!steelApiKey) {
-    throw new Error('Missing STEEL_API_KEY');
+  if (!browserbaseApiKey) {
+    throw new Error('Missing BROWSERBASE_API_KEY');
   }
 
   if (!geminiApiKey) {
@@ -209,7 +210,8 @@ export async function runBrowserSession(
     try {
       return await runBrowserSessionAttempt({
         appUrl,
-        steelApiKey,
+        browserbaseApiKey,
+        browserbaseProjectId,
         geminiApiKey,
         objectivePlans,
         figmaLinkType,
@@ -276,7 +278,8 @@ export async function runBrowserSession(
 
 async function runBrowserSessionAttempt({
   appUrl,
-  steelApiKey,
+  browserbaseApiKey,
+  browserbaseProjectId,
   geminiApiKey,
   objectivePlans,
   figmaLinkType,
@@ -284,15 +287,21 @@ async function runBrowserSessionAttempt({
   persona,
 }: {
   appUrl: string;
-  steelApiKey: string;
+  browserbaseApiKey: string;
+  browserbaseProjectId?: string;
   geminiApiKey: string;
   objectivePlans: ObjectivePlan[];
   figmaLinkType: FigmaLinkType | null;
   isFigmaSimulation: boolean;
   persona: Persona;
 }): Promise<BrowserSessionResult> {
-  const steelClient = new Steel({ steelAPIKey: steelApiKey });
-  const session = await steelClient.sessions.create();
+  const browserbaseClient = new Browserbase({ apiKey: browserbaseApiKey });
+  const session = browserbaseProjectId
+    ? await browserbaseClient.sessions.create({ projectId: browserbaseProjectId })
+    : await browserbaseClient.sessions.create();
+  const connectUrl =
+    session.connectUrl ||
+    `wss://connect.browserbase.com?apiKey=${browserbaseApiKey}&sessionId=${session.id}`;
 
   let browser: Browser | undefined;
 
@@ -301,7 +310,7 @@ async function runBrowserSessionAttempt({
 
   try {
     browser = await chromium.connectOverCDP(
-      `wss://connect.steel.dev?apiKey=${steelApiKey}&sessionId=${session.id}`
+      connectUrl
     );
 
     const context = browser.contexts()[0];
@@ -430,11 +439,6 @@ async function runBrowserSessionAttempt({
     } catch (error) {
       console.warn('Browser close failed:', error);
     }
-    try {
-      await steelClient.sessions.release(session.id);
-    } catch (error) {
-      console.warn('Steel session release failed:', error);
-    }
   }
 }
 
@@ -507,6 +511,13 @@ function isRetryableBrowserSessionError(message: string) {
   const compact = message.replace(/\s+/g, ' ').trim().toLowerCase();
 
   return (
+    compact.includes('timeout') ||
+    compact.includes('timed out') ||
+    compact.includes('security interstitial') ||
+    compact.includes('captcha') ||
+    compact.includes('verify you are human') ||
+    compact.includes('blocked') ||
+    compact.includes('access denied') ||
     compact.includes('browser has been closed') ||
     compact.includes('cdp connection') ||
     compact.includes('connect econnrefused') ||
@@ -529,11 +540,11 @@ async function loadInitialPage({
   page: Page;
 }) {
   if (!isFigmaSimulation) {
-    await page.goto(appUrl, { waitUntil: 'networkidle', timeout: 30000 });
+    await navigateReadyEnough(page, appUrl);
     return;
   }
 
-  await page.goto(appUrl, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await navigateReadyEnough(page, appUrl);
 
   if (figmaLinkType === 'make') {
     return;
@@ -553,7 +564,7 @@ async function runObjectiveAttempt({
   page: Page;
   screenshots: ScreenCapture[];
 }): Promise<BrowserExplorationAttempt> {
-  await page.goto(appUrl, { waitUntil: 'networkidle', timeout: 30000 });
+  await navigateReadyEnough(page, appUrl);
   await sleep(1500);
 
   const baseAttempt = {
@@ -639,6 +650,45 @@ async function runObjectiveAttempt({
   }
 }
 
+async function navigateReadyEnough(page: Page, url: string) {
+  await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+  // "Ready enough": body exists and the page had a short settle window.
+  try {
+    await page.waitForSelector('body', { state: 'visible', timeout: 10000 });
+  } catch {
+    // Some sites can still be usable even if selector visibility is delayed.
+  }
+
+  await sleep(1200);
+
+  await assertNoSecurityInterstitial(page);
+}
+
+async function assertNoSecurityInterstitial(page: Page) {
+  const title = (await safePageTitle(page)).toLowerCase();
+  const bodySnippet = await page
+    .evaluate(() => document.body?.innerText?.slice(0, 5000) || '')
+    .catch(() => '');
+  const haystack = `${title}\n${bodySnippet}`.toLowerCase();
+
+  const securitySignals = [
+    'verify you are human',
+    "let's verify",
+    'captcha',
+    'security check',
+    'unusual traffic',
+    'access denied',
+    'blocked',
+    'cloudflare',
+    'checking your browser',
+  ];
+
+  if (securitySignals.some((signal) => haystack.includes(signal))) {
+    throw new Error('Security interstitial detected while loading target app');
+  }
+}
+
 async function captureScreen({
   page,
   geminiApiKey,
@@ -696,6 +746,21 @@ function createObjectivePlans(
       VALIDATION_TEST_CATALOG.find((test) => test.id === testId)?.label || testId;
 
     switch (testId) {
+      case 'activation':
+        return {
+          testId,
+          label,
+          goal:
+            'Inspect how quickly users can reach a meaningful first value moment after onboarding.',
+          observationFocus:
+            'First-success cues, setup completion signals, progress milestones, and immediate payoff messaging.',
+          observeInstruction:
+            `Find visible UI tied to first value, such as setup completion steps, checklists, success banners, progress milestones, or "first result" moments. ${personaActionLens}`,
+          actionInstruction:
+            `Open the clearest path to a first meaningful output or completed setup state, prioritizing the shortest route to user value. ${personaActionLens}`,
+          extractInstruction:
+            `Extract visible activation evidence: setup progress, success states, first outcome confirmation, onboarding-to-value transitions, and points where users may stall before first value. ${personaExtractionLens}`,
+        };
       case 'onboarding':
         return {
           testId,
@@ -759,6 +824,21 @@ function createObjectivePlans(
             : `Open the most relevant privacy, policy, consent, or compliance page that is visible, preferring privacy policy, terms, security, or cookie-related routes. ${personaActionLens}`,
           extractInstruction:
             `Extract visible compliance evidence: privacy or terms copy, cookie or consent messaging, security and compliance claims, permission requests, disclaimers, policy links, and any explanation of data use. ${personaExtractionLens}`,
+        };
+      case 'thumb-zones':
+        return {
+          testId,
+          label,
+          goal:
+            'Inspect whether key actions appear easy to reach and operate in common thumb-reach areas on mobile-like layouts.',
+          observationFocus:
+            'Bottom navigation, sticky CTAs, primary action placement, tap target spacing, and single-hand ergonomics cues.',
+          observeInstruction:
+            `Find visible primary actions, sticky bottom bars, navigation controls, and key tappable elements that indicate one-handed mobile reachability. ${personaActionLens}`,
+          actionInstruction:
+            `Open or interact with the most obvious primary action path while assessing whether actions are clustered in easy thumb-reach zones. ${personaActionLens}`,
+          extractInstruction:
+            `Extract visible thumb-zone evidence: placement of primary CTAs, bottom controls, navigation ergonomics, tap target density, and any likely one-handed usability friction. ${personaExtractionLens}`,
         };
       default:
         return {

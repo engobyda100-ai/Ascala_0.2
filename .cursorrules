@@ -4,22 +4,22 @@
 This is a Next.js 14+ (App Router) TypeScript application that:
 1. Takes a target market description + app URL as input
 2. Uses Gemini AI (Google) to generate a user persona
-3. Uses Steel.dev + Playwright + Gemini Vision to navigate the app as that persona
+3. Uses Browserbase + Playwright + Gemini Vision to navigate the app as that persona
 4. Uses Gemini AI with vision to analyze screenshots and produce a UX report
 
 ## Tech Stack
 - Next.js 14+ with App Router and TypeScript
 - Google Gemini API (@google/generative-ai SDK) for persona generation and vision-based analysis
-- Steel.dev (steel-sdk) for cloud browser sessions via CDP
+- Browserbase (@browserbasehq/sdk) for cloud browser sessions via CDP
 - Playwright for browser automation (navigation, screenshots, DOM interaction)
 - Gemini Vision for AI-powered browser actions (act, observe, extract)
 - Tailwind CSS + shadcn/ui for the frontend
-- Deployed on Vercel + Steel.dev Cloud
+- Deployed on Vercel + Browserbase Cloud
 
 ## Key Architecture Rules
 - All LLM calls go through lib/gemini.ts using the @google/generative-ai SDK
 - Use Gemini 2.5 Pro for analysis tasks (multimodal) and Gemini 2.0 Flash for simple/fast tasks
-- All browser automation goes through lib/browser.ts using Steel + Playwright + Gemini Vision
+- All browser automation goes through lib/browser.ts using Browserbase + Playwright + Gemini Vision
 - The API route at app/api/review/route.ts orchestrates the full pipeline
 - Prompts are centralized in lib/prompts.ts
 - Types are centralized in lib/types.ts
@@ -31,9 +31,9 @@ This is a Next.js 14+ (App Router) TypeScript application that:
 - Use responseMimeType: "application/json" for structured JSON output
 - Handle rate limits with exponential backoff
 
-## Browser Automation Rules (Steel + Playwright + Gemini Vision)
-- Steel.dev provides cloud browser sessions; connect via chromium.connectOverCDP()
-- Always release Steel sessions in a finally block (client.sessions.release)
+## Browser Automation Rules (Browserbase + Playwright + Gemini Vision)
+- Browserbase provides cloud browser sessions; connect via chromium.connectOverCDP(session.connectUrl)
+- Configure BROWSERBASE_API_KEY (required) and BROWSERBASE_PROJECT_ID (recommended)
 - Use geminiAct() for AI-powered interactions (scrolling, clicking, typing)
 - Use geminiObserve() to find elements on the page via screenshot + Gemini Vision
 - Use geminiExtract() to pull structured text content from screenshots

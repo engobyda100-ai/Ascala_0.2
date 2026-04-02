@@ -6,6 +6,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   BarChart3,
+  Check,
   ChevronDown,
   ChevronRight,
   ListChecks,
@@ -93,7 +94,7 @@ export function RightPanelFlow({
   onOpenExpandedReader,
   onOpenTestReport,
 }: RightPanelFlowProps) {
-  const [activeStep, setActiveStep] = useState<RightPanelStepId>('generate');
+  const [activeStep, setActiveStep] = useState<RightPanelStepId | null>(null);
   const selectedCount = selectedTestIds.length;
   const generatedCount = generatedPersonas.length;
   const hasCompletedResults = Boolean(
@@ -183,6 +184,11 @@ export function RightPanelFlow({
   }, [activeStep, chooseStepUnlocked, resultsStepUnlocked, testsStepUnlocked]);
 
   const handleOpenStep = (step: RightPanelStepId) => {
+    if (activeStep === step) {
+      setActiveStep(null);
+      return;
+    }
+
     if (step === 'generate') {
       setActiveStep(step);
       return;
@@ -225,10 +231,19 @@ export function RightPanelFlow({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-2 overflow-y-auto p-2 pr-1">
+    <div className="flex h-full min-h-0 flex-col overflow-x-hidden overflow-y-auto">
+      <div className="sticky top-0 z-20 flex min-h-[64px] items-center border-b border-border/45 bg-[#e8dfd3] px-4 py-3">
+        <p className="flex items-center gap-2 text-base font-semibold">
+          <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-black text-xs font-semibold text-white">
+            3
+          </span>
+          <span>Studio Space</span>
+        </p>
+      </div>
+      <div className="space-y-2 p-2 pr-1">
       {hasPendingPersonaRegenerationDecision ? (
         <div className="rounded-[20px] border border-[#C26A43]/30 bg-[#FFF4EC] px-4 py-3 shadow-[0_18px_38px_-28px_rgba(61,23,0,0.32)]">
-          <p className="text-[12px] font-semibold text-[#8E4524]">
+          <p className="break-words text-[12px] font-semibold text-[#8E4524]">
             Would you like to regenerate personas based on the new context?
           </p>
           <div className="mt-3 flex items-center justify-end gap-2">
@@ -397,7 +412,7 @@ export function RightPanelFlow({
                         }
                         onClick={() => onSelectPersona(persona.id)}
                         className={cn(
-                          'flex min-h-[292px] min-w-[264px] snap-start flex-col rounded-[24px] border px-4 py-4 text-left shadow-[0_18px_38px_-28px_rgba(61,23,0,0.45)] transition-colors',
+                          'relative flex min-h-[292px] min-w-[264px] snap-start flex-col rounded-[24px] border px-4 py-4 text-left shadow-[0_18px_38px_-28px_rgba(61,23,0,0.45)] transition-colors',
                           isSelected
                             ? 'border-[#C26A43]/60 bg-white ring-1 ring-[#C26A43]/30'
                             : 'border-border/45 bg-white/42 hover:bg-white/60',
@@ -406,6 +421,16 @@ export function RightPanelFlow({
                             'cursor-not-allowed'
                         )}
                       >
+                        <span
+                          className={cn(
+                            'absolute right-3 top-3 inline-flex h-6 w-6 items-center justify-center rounded-full border shadow-sm',
+                            isSelected
+                              ? 'border-[#3D1700] bg-[#3D1700] text-white'
+                              : 'border-border/55 bg-white/85 text-transparent'
+                          )}
+                        >
+                          <Check className="h-3.5 w-3.5" />
+                        </span>
                         <div className="flex items-center gap-3">
                           <div
                             className={cn(
@@ -534,7 +559,7 @@ export function RightPanelFlow({
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                 Simulation Run
               </p>
-              <p className="mt-1 text-[12px] leading-5 text-muted-foreground">
+              <p className="mt-1 break-words text-[12px] leading-5 text-muted-foreground">
                 {runStatusMessage}
               </p>
               {runState.lastRunAt ? (
@@ -544,6 +569,9 @@ export function RightPanelFlow({
               ) : null}
             </div>
             <div className="flex shrink-0 flex-col items-center gap-1">
+              <p className="text-center text-[10px] text-muted-foreground">
+                This is gonna cost you {selectedCount * 4} Tokens
+              </p>
               <Button
                 onClick={onRun}
                 disabled={!canRun}
@@ -552,9 +580,6 @@ export function RightPanelFlow({
               >
                 Run Simulation
               </Button>
-              <p className="text-center text-[10px] text-muted-foreground">
-                {selectedCount * 4} tokens
-              </p>
             </div>
           </div>
           <div>
@@ -569,6 +594,7 @@ export function RightPanelFlow({
           </div>
         </div>
       </StepSection>
+      </div>
     </div>
   );
 }
@@ -597,7 +623,7 @@ function StepSection({
   return (
     <section
       className={cn(
-        'shrink-0 rounded-[20px] border border-border/45 transition-all duration-200',
+        'w-full shrink-0 overflow-hidden rounded-[20px] border border-border/45 transition-all duration-200',
         isActive
           ? 'bg-white/58'
           : 'shrink-0 bg-white/26',
@@ -609,7 +635,7 @@ function StepSection({
         onClick={onOpen}
         disabled={isLocked}
         className={cn(
-          'flex items-center gap-3 px-4 py-3 text-left transition-colors',
+          'flex w-full items-center gap-3 px-4 py-3 text-left transition-colors',
           isLocked ? 'cursor-default' : 'hover:bg-white/35'
         )}
       >
@@ -625,7 +651,9 @@ function StepSection({
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold">{title}</p>
-          <p className="mt-1 truncate text-[11px] text-muted-foreground">{summary}</p>
+          <p className="mt-1 break-words text-[11px] leading-4 text-muted-foreground">
+            {summary}
+          </p>
         </div>
         {isActive ? (
           <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
